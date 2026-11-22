@@ -5,7 +5,6 @@ import pytest
 
 from resume_agent.config import Config, Provider
 from resume_agent.guards.rules import (
-    GMAIL_SCOPES,
     GuardError,
     ensure_excel_closed,
     is_locked,
@@ -26,10 +25,6 @@ def test_providers_cannot_read_files_or_bill_per_use():
         "ollama",
         "lmstudio",
     }
-
-
-def test_gmail_scope_is_read_only():
-    assert GMAIL_SCOPES == ("https://www.googleapis.com/auth/gmail.readonly",)
 
 
 def test_apply_blocked_by_default(config):

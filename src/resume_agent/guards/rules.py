@@ -5,7 +5,6 @@ from pathlib import Path
 
 from resume_agent.config import Config
 
-GMAIL_SCOPES = ("https://www.googleapis.com/auth/gmail.readonly",)
 DRAFTS_DIR = "drafts"
 NOTES_FILE = "notes.md"
 WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH

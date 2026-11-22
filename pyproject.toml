@@ -17,9 +17,6 @@ dependencies = [
     "pypdfium2>=4.30",
     "ocrmac>=1.0",
     "openpyxl==3.1.5",
-    "google-auth-oauthlib>=1.5",
-    "google-api-python-client>=2.202",
-    "keyring>=25.7",
 ]
 
 [project.optional-dependencies]

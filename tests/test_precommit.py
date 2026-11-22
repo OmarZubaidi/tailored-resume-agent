@@ -34,7 +34,6 @@ def stage(repo: Path, relative: str, content: str = "x") -> None:
         "~$Job Applications.xlsx",
         "resume.docx",
         "config.yaml",
-        "client_secret_123-abc.apps.googleusercontent.com.json",
         "drafts/resume.md",
         "x/.state/progress.json",
     ],

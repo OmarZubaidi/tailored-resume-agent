@@ -2,8 +2,7 @@
 
 Paste job URLs into a spreadsheet; the agent saves each listing, tailors your resume and cover letter,
 renders ATS-safe PDFs, files them in a numbered folder, and tracks the application through each
-stage. Rejections and interview invites come in through a read-only Gmail scan that asks before
-changing anything.
+stage you report.
 
 ## What you can say
 
@@ -17,12 +16,8 @@ Open any coding agent (Claude Code, or one that reads `AGENTS.md`) in this folde
 | "rejected by Acme Health" | Records Rejected |
 | "Acme Health moved to 2nd round, technical Dec 10" | Records 2nd with the detail in the timeline |
 | "status of 42" | Reads application 00042's timeline |
-| "review updates" | Lists stage updates the Gmail scan found; you confirm or reject each |
 | "switch home industry to finance" | Changes `home_industry` and its keywords in `config.yaml` |
 | "add a new baseline" | Copies the general baseline to a new one and edits it with you |
-
-A macOS notification such as "Acme Health rejection → #00042?" means the scan queued an update: say
-"review updates".
 
 Several open applications at one company? The agent shows a short pick list and asks.
 
@@ -45,8 +40,6 @@ Several open applications at one company? The agent shows a short pick list and 
 5. **Baseline**: put `resume.md`, `cover-letter.md` and `skills-ledger.yaml` in
    `baselines/general/` under `data_root` (`bullet-bank.md` is optional). Triage and tailoring need
    them, so the first `inbox` run fails without them.
-6. **Gmail scan**: follow [docs/gmail-setup.md](docs/gmail-setup.md) (Google project, sign-in,
-   launchd schedule).
 
 The AI steps use your Claude subscription through `claude` (the one on your PATH, else the one
 bundled with Claude Desktop or the VS Code extension; no API key), or a local Ollama / LM Studio
@@ -67,10 +60,6 @@ it as a Claude skill.
 | `inbox` | Processes every new Inbox row |
 | `review proceed\|drop ID...` | Decides flagged Inbox jobs |
 | `update COMPANY STAGE [--date] [--note] [--id]` | Records a stage |
-| `gmail login --client-file JSON` | Read-only Gmail sign-in, token in the Keychain |
-| `gmail scan` | Classifies new emails and queues stage updates |
-| `updates [confirm\|reject N...]` | Lists, confirms or discards queued updates |
-| `dev install-schedule` | Installs the launchd scan schedule |
 | `dev install-hooks` | Enables the pre-commit guard |
 
 Run any of them as `.venv/bin/resume_agent <command> --help` for every option. Checks:

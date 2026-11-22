@@ -11,23 +11,10 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.email_scan import (
-    ScanError,
-    confirm_update,
-    describe_update,
-    discard_pending,
-    load_pending,
-    notification,
-    notify,
-    pending_update,
-    scan_mailbox,
-)
-from resume_agent.gmail import GmailError, open_mailbox
-from resume_agent.gmail import login as gmail_sign_in
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.llm import LlmError, run_prompt
+from resume_agent.llm import run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
     TAILOR_ERRORS,
@@ -38,9 +25,7 @@ from resume_agent.pipeline import (
     tailor_folder,
     triage_folder,
 )
-from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
-from resume_agent.schedule import ScheduleError, install_schedule, log_path
 from resume_agent.stages import (
     Ambiguous,
     StageError,
@@ -67,18 +52,8 @@ config_app = typer.Typer(help="Inspect the config file.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 dev_app = typer.Typer(help="Developer setup.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
-gmail_app = typer.Typer(help="Read-only Gmail sign-in and scan.", no_args_is_help=True)
-app.add_typer(gmail_app, name="gmail")
-updates_app = typer.Typer(help="Review stage updates proposed by the Gmail scan.")
-app.add_typer(updates_app, name="updates")
 HOOKS_PATH = ".githooks"
 ISO_DATE = "%Y-%m-%d"
-SCAN_ERRORS = (GmailError, LlmError, PromptError, ScanError, StageError, TrackerError)
-UPDATES_HINT = (
-    "Confirm with: resume_agent updates confirm <n>... (--id <ID> to pick the application)\n"
-    "Discard with: resume_agent updates reject <n>..."
-)
-UpdateNumbers = Annotated[list[int], typer.Argument(help="Numbers from `resume_agent updates`.")]
 
 
 @app.callback()
@@ -336,121 +311,6 @@ def update(
         typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
     elif stage == Stage.APPLIED:
         typer.echo("No application folder, so no files were locked.", err=True)
-
-
-@gmail_app.command("login")
-def gmail_login(
-    client_file: Annotated[
-        Path,
-        typer.Option(exists=True, dir_okay=False, help="Desktop OAuth client JSON from Google."),
-    ],
-) -> None:
-    """Sign in to Gmail read-only and keep the token in the macOS Keychain."""
-    config = load_config_or_exit()
-    try:
-        account = gmail_sign_in(client_file, config)
-    except GmailError as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from error
-    typer.echo(f"Signed in to Gmail as {account}. The token is in the Keychain.")
-
-
-def echo_error(message: str) -> None:
-    typer.echo(message, err=True)
-
-
-@gmail_app.command("scan")
-def gmail_scan() -> None:
-    """Classify new application emails and queue proposed stage updates for review."""
-    config = load_config_or_exit()
-    try:
-        mailbox = open_mailbox(config)
-        tracker = load_tracker(workbook_path(config.data_root))
-        variants = load_variants(config.data_root)
-        run = llm_runner(config)
-        added = scan_mailbox(
-            mailbox, tracker, variants, run, config.data_root, datetime.now(), echo_error
-        )
-    except SCAN_ERRORS as error:
-        typer.echo(str(error), err=True)
-        summary = str(error).partition("\n")[0]
-        notify(f"Gmail scan failed: {summary}")
-        raise typer.Exit(1) from error
-    for update in added:
-        typer.echo(describe_update(update, tracker))
-    if added:
-        notify(notification(added))
-
-
-@updates_app.callback(invoke_without_command=True)
-def updates(context: typer.Context) -> None:
-    """List stage updates the Gmail scan proposed. Nothing changes until you confirm one."""
-    if context.invoked_subcommand:
-        return
-    config = load_config_or_exit()
-    try:
-        tracker = load_tracker(workbook_path(config.data_root))
-        pending = load_pending(config.data_root)
-    except (ScanError, TrackerError) as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from error
-    if not pending:
-        typer.echo("No pending updates.")
-        return
-    for update in pending:
-        typer.echo(describe_update(update, tracker))
-    typer.echo(UPDATES_HINT)
-
-
-@updates_app.command("confirm")
-def updates_confirm(
-    numbers: UpdateNumbers,
-    application_id: Annotated[
-        int | None, typer.Option("--id", help="Application ID, when the scan found no match.")
-    ] = None,
-) -> None:
-    """Record the proposed stages in the tracker."""
-    if application_id is not None and len(numbers) != 1:
-        typer.echo("--id goes with a single update number.", err=True)
-        raise typer.Exit(1)
-    config = load_config_or_exit()
-    try:
-        tracker = open_tracker(config)
-        pending = load_pending(config.data_root)
-        for number in dict.fromkeys(numbers):
-            update = pending_update(pending, number)
-            application, stage = confirm_update(update, tracker, config, application_id)
-            discard_pending(config.data_root, [number])
-            typer.echo(f"{pick_line(application)}: {stage.value} {update.received}")
-    except (GuardError, ScanError, StageError, TrackerError) as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from error
-
-
-@updates_app.command("reject")
-def updates_reject(numbers: UpdateNumbers) -> None:
-    """Discard proposed updates without changing the tracker."""
-    config = load_config_or_exit()
-    try:
-        rejected = discard_pending(config.data_root, numbers)
-    except ScanError as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from error
-    for update in rejected:
-        typer.echo(f"Discarded {update.number}. {update.source} {update.kind.value}")
-
-
-@dev_app.command("install-schedule")
-def install_scan_schedule() -> None:
-    """Run the Gmail scan every email_scan_hours with launchd, catching up after sleep."""
-    config = load_config_or_exit()
-    try:
-        path = install_schedule(config)
-    except ScheduleError as error:
-        typer.echo(str(error), err=True)
-        raise typer.Exit(1) from error
-    typer.echo(f"Gmail scan runs every {config.email_scan_hours}h: {path}")
-    typer.echo(f"Log: {log_path(Path.home())}")
 
 
 @dev_app.command("install-hooks")
