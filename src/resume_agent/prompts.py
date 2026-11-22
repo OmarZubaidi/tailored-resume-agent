@@ -32,3 +32,7 @@ def parse_json_reply(reply: str) -> dict:
     if not isinstance(data, dict):
         raise PromptError("Expected a JSON object from the model")
     return data
+
+
+def text_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""

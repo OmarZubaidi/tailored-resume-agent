@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -6,7 +7,15 @@ from pathlib import Path
 import yaml
 
 from resume_agent.application_folder import add_timeline_event, application_dir, format_id
-from resume_agent.tracker import Application, Stage, Tracker
+from resume_agent.config import Config
+from resume_agent.tracker import (
+    Application,
+    Stage,
+    Tracker,
+    check_saveable,
+    save_tracker,
+    workbook_path,
+)
 
 COMPANIES_FILE = "companies.yaml"
 CLEAR_LEAD = timedelta(days=60)
@@ -139,3 +148,20 @@ def add_stage_event(
     folder = application_dir(data_root, application)
     if folder:
         add_timeline_event(folder, day, f"{stage.value}: {note}" if note else stage.value)
+
+
+def save_stage[T](
+    tracker: Tracker,
+    application: Application,
+    stage: Stage,
+    day: date,
+    config: Config,
+    note: str | None = None,
+    before_save: Callable[[], T] | None = None,
+) -> T | None:
+    record_stage(application, stage, day)
+    check_saveable(tracker, workbook_path(config.data_root))
+    prepared = before_save() if before_save else None
+    save_tracker(tracker, config)
+    add_stage_event(application, stage, day, config.data_root, note)
+    return prepared
