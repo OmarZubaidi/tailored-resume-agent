@@ -92,12 +92,6 @@ def test_non_mapping_yaml(tmp_path):
             },
             "api_key",
         ),
-        (
-            {
-                "email_scan_hours": 0,
-            },
-            "email_scan_hours",
-        ),
     ],
 )
 def test_invalid_fields(config_data, write_config, change, message):
@@ -119,7 +113,6 @@ def test_invalid_fields(config_data, write_config, change, message):
         "excel_template",
         "default_baseline",
         "apply_on_my_behalf",
-        "email_scan_hours",
         "llm",
     ],
 )

@@ -12,7 +12,6 @@ industry_keywords:
   healthcare: [FHIR, EHR, HL7, X12, ERA, claims, revenue cycle, telemedicine, patient, insurance eligibility]
 default_baseline: general
 apply_on_my_behalf: false
-email_scan_hours: 6
 llm:
   provider: claude-code
   model: null

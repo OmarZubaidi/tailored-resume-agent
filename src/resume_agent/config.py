@@ -8,7 +8,6 @@ import yaml
 from pydantic import (
     BaseModel,
     ConfigDict,
-    Field,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -58,7 +57,6 @@ class Config(StrictModel):
     industry_keywords: dict[str, list[str]]
     default_baseline: str
     apply_on_my_behalf: bool
-    email_scan_hours: int = Field(gt=0)
     llm: LlmConfig
 
     @field_validator("data_root", "excel_template", mode="before")
