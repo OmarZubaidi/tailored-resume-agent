@@ -34,8 +34,23 @@ BANNED_WORDS = (
     "passionate",
     "seamless",
     "seamlessly",
+    "excited",
+    "eager",
+    "writing to express",
+    "proven track record",
+    "results-driven",
+    "dynamic",
+    "fast-paced",
+    "esteemed",
+    "strong foundation",
+    "great things happen",
+    "leverage",
+    "synergy",
+    "great fit",
 )
-BANNED_WORD = re.compile(rf"\b({'|'.join(BANNED_WORDS)})\b", re.IGNORECASE)
+BANNED_WORD = re.compile(
+    rf"\b({'|'.join(re.escape(word) for word in BANNED_WORDS)})\b", re.IGNORECASE
+)
 ABBREVIATION = re.compile(r"\b(?:e\.g|i\.e|etc|vs)\.", re.IGNORECASE)
 LOWERCASE_START = re.compile(r"(?:^|[.!?]\s+|\n\s*)([a-z][a-z0-9-]*)\b", re.MULTILINE)
 LOWERCASE_I = re.compile(r"(?<![\w.])i(?=[\s,;:!?']|$)")
@@ -88,7 +103,7 @@ def casing_problems(text: str) -> list[str]:
 
 
 def style_problems(text: str) -> list[str]:
-    problems = [f"uses the word {word!r}" for word in BANNED_WORD.findall(text)]
+    problems = [f"uses the banned phrase {word!r}" for word in BANNED_WORD.findall(text)]
     problems += [f"uses contrast framing: {match!r}" for match in CONTRAST_FRAMING.findall(text)]
     if LONG_DASH.search(text):
         problems.append("uses an en or em dash")

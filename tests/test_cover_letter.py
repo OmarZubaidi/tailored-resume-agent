@@ -67,8 +67,11 @@ def test_years_in_words(months, words):
 @pytest.mark.parametrize(
     ("text", "problem"),
     [
-        ("I am genuinely excited.", "uses the word 'genuinely'"),
-        ("Honestly, I love APIs.", "uses the word 'Honestly'"),
+        ("I am genuinely glad.", "uses the banned phrase 'genuinely'"),
+        ("Honestly, I love APIs.", "uses the banned phrase 'Honestly'"),
+        ("I have a proven track record.", "uses the banned phrase 'proven track record'"),
+        ("A fast-paced team.", "uses the banned phrase 'fast-paced'"),
+        ("Let's make great things happen.", "uses the banned phrase 'great things happen'"),
         ("It's not just code, it's craft.", "uses contrast framing"),
         ("It's not about speed, it's about care.", "uses contrast framing"),
         ("I bring not only skill, but grit.", "uses contrast framing"),
@@ -121,7 +124,7 @@ def test_llm_verbiage_gets_one_revision(ledger):
     generated = generate(run, ledger)
 
     assert "Your draft below breaks these rules:" in prompts[1]
-    assert "- uses the word 'genuinely'" in prompts[1]
+    assert "- uses the banned phrase 'genuinely'" in prompts[1]
     assert "- uses an en or em dash" in prompts[1]
     assert generated.letter.paragraphs[0] == "Dear Hiring Team,"
 

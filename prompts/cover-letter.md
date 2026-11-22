@@ -41,7 +41,7 @@ $voice
    - Use normal capitalization: start every sentence with a capital letter and capitalize "I".
    - Use plain apostrophes and a plain hyphen, and keep the apostrophe in every contraction.
      Never use an en or em dash, and never use a colon in a sentence.
-   - Never use these words: $banned_words.
+   - Never use these words or phrases: $banned_words.
    - Never use contrast framing such as "not just X, it's Y", "it's not X, it's Y" or
      "not only X, but Y".
 7. Keep the whole letter under $max_words words so it fits on one page.
