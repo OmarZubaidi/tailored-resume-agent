@@ -3,15 +3,13 @@ from datetime import date
 import pytest
 
 from resume_agent.cover_letter import (
-    WORD_ALLOWANCE,
+    MAX_LETTER_WORDS,
     style_problems,
-    template_body,
     write_cover_letter,
     years_in_words,
 )
 from resume_agent.documents import DocumentError
 from resume_agent.ledger import load_ledger
-from resume_agent.validation import word_count
 
 TEMPLATE = """---
 title: Cover Letter
@@ -130,13 +128,12 @@ def test_llm_verbiage_gets_one_revision(ledger):
 
 
 def test_long_draft_gets_one_revision(ledger):
-    run, prompts = scripted("Dear team,\n\n" + "word " * 60 + "\n\nBest,", LETTER)
+    run, prompts = scripted("Dear team,\n\n" + "word " * 330 + "\n\nBest,", LETTER)
 
     generate(run, ledger)
 
-    cap = round(word_count(template_body(TEMPLATE)) * WORD_ALLOWANCE)
-    assert f"under {cap} words" in prompts[0]
-    assert f"- is 63 words; the limit is {cap}" in prompts[1]
+    assert f"under {MAX_LETTER_WORDS} words" in prompts[0]
+    assert f"- is 333 words; the limit is {MAX_LETTER_WORDS}" in prompts[1]
 
 
 def test_verbiage_that_survives_revision_fails(ledger):
