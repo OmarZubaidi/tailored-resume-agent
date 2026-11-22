@@ -5,7 +5,15 @@ from enum import StrEnum
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 CONFIG_PATH_ENV = "RESUME_AGENT_CONFIG"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +48,7 @@ class LlmConfig(StrictModel):
 
 class Config(StrictModel):
     data_root: Path
+    excel_template: Path
     name: str
     email: str
     phone: str
@@ -52,10 +61,10 @@ class Config(StrictModel):
     email_scan_hours: int = Field(gt=0)
     llm: LlmConfig
 
-    @field_validator("data_root", mode="before")
+    @field_validator("data_root", "excel_template", mode="before")
     @classmethod
-    def resolve_data_root(cls, value: str | Path) -> Path:
-        return resolve_data_root(str(value))
+    def resolve_paths(cls, value: str | Path, info: ValidationInfo) -> Path:
+        return resolve_path_pattern(str(value), info.field_name)
 
     @field_validator("email")
     @classmethod
@@ -73,10 +82,10 @@ class Config(StrictModel):
         return self
 
 
-def resolve_data_root(pattern: str) -> Path:
+def resolve_path_pattern(pattern: str, key: str) -> Path:
     path = Path(pattern).expanduser()
     if not path.is_absolute():
-        raise ValueError(f"data_root must be an absolute path or start with ~, got {pattern!r}")
+        raise ValueError(f"{key} must be an absolute path or start with ~, got {pattern!r}")
     parts = path.parts
     wildcard_indexes = [index for index, part in enumerate(parts) if glob.has_magic(part)]
     if not wildcard_indexes:
@@ -87,9 +96,7 @@ def resolve_data_root(pattern: str) -> Path:
     matches = sorted(glob.glob(prefix))
     if len(matches) != 1:
         found = ", ".join(matches) if matches else "none"
-        raise ValueError(
-            f"data_root pattern {prefix!r} must match exactly one folder, found: {found}"
-        )
+        raise ValueError(f"{key} pattern {prefix!r} must match exactly one path, found: {found}")
     return Path(matches[0], *parts[split:])
 
 

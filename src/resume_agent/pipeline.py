@@ -1,4 +1,5 @@
 import re
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -16,8 +17,10 @@ from resume_agent.ats import (
     report_markdown,
     resume_expected_lines,
 )
+from resume_agent.browser import BrowserError
 from resume_agent.config import Config
 from resume_agent.cover_letter import write_cover_letter
+from resume_agent.data_root import BASELINES_DIR
 from resume_agent.documents import (
     DocumentError,
     open_placeholders,
@@ -25,14 +28,23 @@ from resume_agent.documents import (
     parse_resume,
     resume_markdown,
 )
-from resume_agent.guards.rules import DRAFTS_DIR, NOTES_FILE, is_locked
-from resume_agent.job_listing import LISTING_MD, read_listing
+from resume_agent.guards.rules import (
+    DRAFTS_DIR,
+    NOTES_FILE,
+    GuardError,
+    is_locked,
+    lock_applied_files,
+    require_files,
+)
+from resume_agent.job_listing import LISTING_MD, Listing, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
-from resume_agent.ledger import LEDGER_FILE, load_ledger
-from resume_agent.prompts import parse_json_reply, render_prompt
-from resume_agent.render import cover_letter_html, render_pdf, resume_html
+from resume_agent.ledger import LEDGER_FILE, LedgerError, load_ledger
+from resume_agent.llm import LlmError
+from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
+from resume_agent.render import RenderError, cover_letter_html, render_pdf, resume_html
 from resume_agent.tailor import (
     BANK_FILE,
+    TailorError,
     apply_plan,
     bank_markdown,
     build_bank,
@@ -40,7 +52,20 @@ from resume_agent.tailor import (
     drop_lowest_bullet,
     ledger_summary,
 )
+from resume_agent.triage import TRIAGE_MD, Triage, add_fit, triage_listing
 
+TAILOR_ERRORS = (
+    BrowserError,
+    DocumentError,
+    FileNotFoundError,
+    LedgerError,
+    LlmError,
+    PromptError,
+    RenderError,
+    TailorError,
+)
+RESUME_DOCUMENT = "Resume"
+COVER_LETTER_DOCUMENT = "Cover-Letter"
 RESUME_SOURCE = "resume.md"
 COVER_LETTER_SOURCE = "cover-letter.md"
 ATS_REPORT = "ats-report.md"
@@ -68,7 +93,21 @@ def pdf_name(person: str, document: str) -> str:
 
 
 def baseline_dir(config: Config, baseline: str) -> Path:
-    return config.data_root / "baselines" / baseline
+    return config.data_root / BASELINES_DIR / baseline
+
+
+def triage_folder(
+    listing: Listing,
+    folder: Path,
+    config: Config,
+    run: Callable[[str], str],
+    baseline: str | None = None,
+) -> Triage:
+    triage = triage_listing(listing, config)
+    ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
+    add_fit(triage, listing.text, ledger_path, run)
+    (folder / TRIAGE_MD).write_text(triage.markdown())
+    return triage
 
 
 def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderResult:
@@ -82,12 +121,20 @@ def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderRe
             f"Fill these placeholders before rendering: {', '.join(placeholders)}. "
             "Use --draft to render a template anyway."
         )
-    resume_pdf = folder / pdf_name(config.name, "Resume")
-    letter_pdf = folder / pdf_name(config.name, "Cover-Letter")
+    resume_pdf = folder / pdf_name(config.name, RESUME_DOCUMENT)
+    letter_pdf = folder / pdf_name(config.name, COVER_LETTER_DOCUMENT)
 
     render_pdf(resume_html(resume, config), resume_pdf)
     render_pdf(cover_letter_html(letter, config), letter_pdf)
+    passed = write_ats_report(folder, config)
+    return RenderResult(resume_pdf, letter_pdf, report, passed)
 
+
+def write_ats_report(folder: Path, config: Config) -> bool:
+    resume = parse_resume((folder / RESUME_SOURCE).read_text())
+    letter = parse_cover_letter((folder / COVER_LETTER_SOURCE).read_text())
+    resume_pdf = folder / pdf_name(config.name, RESUME_DOCUMENT)
+    letter_pdf = folder / pdf_name(config.name, COVER_LETTER_DOCUMENT)
     resume_checks: list[Check] = check_pdf(
         resume_pdf, resume_expected_lines(resume, config), config, REQUIRED_RESUME_HEADINGS
     )
@@ -103,13 +150,52 @@ def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderRe
             )
         )
     letter_checks = check_pdf(letter_pdf, cover_letter_expected_lines(letter, config), config)
-    report.write_text(
+    (folder / ATS_REPORT).write_text(
         report_markdown(resume_pdf.name, resume_checks)
         + "\n"
         + report_markdown(letter_pdf.name, letter_checks)
     )
-    passed = all_passed(resume_checks + letter_checks)
-    return RenderResult(resume_pdf, letter_pdf, report, passed)
+    return all_passed(resume_checks + letter_checks)
+
+
+def applied_files(config: Config) -> list[str]:
+    return [
+        RESUME_SOURCE,
+        COVER_LETTER_SOURCE,
+        pdf_name(config.name, RESUME_DOCUMENT),
+        pdf_name(config.name, COVER_LETTER_DOCUMENT),
+    ]
+
+
+def lock_application(
+    folder: Path,
+    config: Config,
+    today: date,
+    resume_file: Path | None = None,
+    letter_file: Path | None = None,
+) -> bool:
+    handed = {
+        folder / pdf_name(config.name, document): source
+        for document, source in (
+            (RESUME_DOCUMENT, resume_file),
+            (COVER_LETTER_DOCUMENT, letter_file),
+        )
+        if source is not None
+    }
+    locked = [target.name for target in handed if is_locked(target)]
+    if locked:
+        raise GuardError(f"Already locked, it was applied with before: {', '.join(locked)}")
+    notes = []
+    for target, source in handed.items():
+        shutil.copyfile(source, target)
+        notes.append(f"- {today.isoformat()} `{target.name}` replaced with `{source.name}`\n")
+    with (folder / NOTES_FILE).open("a") as file:
+        file.writelines(notes)
+    require_files(folder, applied_files(config))
+
+    passed = write_ats_report(folder, config)
+    lock_applied_files(folder, applied_files(config), today)
+    return passed
 
 
 @dataclass

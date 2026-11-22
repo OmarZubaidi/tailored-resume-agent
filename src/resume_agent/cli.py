@@ -1,21 +1,52 @@
 import subprocess
+from collections.abc import Callable
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from resume_agent.application_folder import application_dir, format_id
 from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
+from resume_agent.guards.rules import GuardError, ensure_excel_closed
+from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.ledger import LEDGER_FILE, LedgerError
-from resume_agent.llm import LlmError, run_prompt
-from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, tailor_folder
-from resume_agent.prompts import PromptError
+from resume_agent.llm import run_prompt
+from resume_agent.pipeline import (
+    DIFF_FILE,
+    TAILOR_ERRORS,
+    Mode,
+    baseline_dir,
+    lock_application,
+    render_folder,
+    tailor_folder,
+    triage_folder,
+)
 from resume_agent.render import RenderError
-from resume_agent.tailor import TailorError
-from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
+from resume_agent.stages import (
+    Ambiguous,
+    StageError,
+    add_stage_event,
+    find_application,
+    load_variants,
+    pick_line,
+    record_stage,
+)
+from resume_agent.tracker import (
+    InboxRow,
+    Stage,
+    Tracker,
+    TrackerError,
+    check_saveable,
+    init_workbook,
+    load_tracker,
+    save_tracker,
+    workbook_path,
+)
+from resume_agent.triage import TRIAGE_MD
 from resume_agent.validation import resolve_listing
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
@@ -24,6 +55,7 @@ app.add_typer(config_app, name="config")
 dev_app = typer.Typer(help="Developer setup.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
 HOOKS_PATH = ".githooks"
+ISO_DATE = "%Y-%m-%d"
 
 
 @app.callback()
@@ -37,6 +69,10 @@ def load_config_or_exit() -> Config:
     except ConfigError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
+
+
+def llm_runner(config: Config) -> Callable[[str], str]:
+    return lambda prompt: run_prompt(config, prompt)
 
 
 @config_app.command("check")
@@ -56,7 +92,12 @@ def init() -> None:
         raise typer.Exit(1)
 
     created = init_data_root(config.data_root)
-    for path in created:
+    try:
+        workbook = init_workbook(config)
+    except (GuardError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    for path in [*created, *([workbook] if workbook else [])]:
         typer.echo(f"Created {path}")
     typer.echo(f"Data root ready: {config.data_root}")
 
@@ -110,10 +151,7 @@ def fetch(
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 
-    triage = triage_listing(listing, config)
-    ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
-    add_fit(triage, listing.text, ledger_path, lambda prompt: run_prompt(config, prompt))
-    (out_dir / TRIAGE_MD).write_text(triage.markdown())
+    triage = triage_folder(listing, out_dir, config, llm_runner(config), baseline)
     typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
     typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")
 
@@ -131,19 +169,8 @@ def tailor(
     """Tailor the resume and cover letter to a listing, then render them."""
     config = load_config_or_exit()
     try:
-        result = tailor_folder(
-            folder, config, lambda prompt: run_prompt(config, prompt), baseline, mode
-        )
-    except (
-        BrowserError,
-        DocumentError,
-        FileNotFoundError,
-        LedgerError,
-        LlmError,
-        PromptError,
-        RenderError,
-        TailorError,
-    ) as error:
+        result = tailor_folder(folder, config, llm_runner(config), baseline, mode)
+    except TAILOR_ERRORS as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 
@@ -153,6 +180,139 @@ def tailor(
     typer.echo(f"ATS {'PASS' if result.render.passed else 'FAIL'}: {result.render.report}")
     if not result.render.passed:
         raise typer.Exit(1)
+
+
+def today() -> date:
+    return date.today()
+
+
+def open_tracker(config: Config) -> Tracker:
+    path = workbook_path(config.data_root)
+    ensure_excel_closed(path)
+    return load_tracker(path)
+
+
+def flagged_line(row: InboxRow) -> str:
+    return f"  {format_id(row.id)}  {row.company} - {row.role}: {row.reason}"
+
+
+@app.command("inbox")
+def inbox() -> None:
+    """Fetch, triage and tailor every new URL in the Inbox sheet."""
+    config = load_config_or_exit()
+    try:
+        tracker = open_tracker(config)
+        result = process_inbox(
+            tracker,
+            config,
+            llm_runner(config),
+            today(),
+            save=lambda: save_tracker(tracker, config),
+            report=typer.echo,
+        )
+    except (GuardError, TrackerError) as error:
+        typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
+        raise typer.Exit(1) from error
+    echo_inbox_result(result)
+
+
+@app.command("review")
+def review(
+    decision: Annotated[Decision, typer.Argument(help="proceed tailors, drop marks Skipped.")],
+    application_ids: Annotated[list[int], typer.Argument(help="IDs from the flagged list.")],
+) -> None:
+    """Proceed with or drop flagged Inbox jobs."""
+    config = load_config_or_exit()
+    try:
+        tracker = open_tracker(config)
+        result = review_rows(
+            tracker,
+            application_ids,
+            decision,
+            config,
+            llm_runner(config),
+            today(),
+            save=lambda: save_tracker(tracker, config),
+        )
+    except (GuardError, InboxError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    echo_inbox_result(result)
+
+
+def echo_inbox_result(result: InboxResult) -> None:
+    for application in result.tailored:
+        suffix = f" ({application.notes})" if application.notes else ""
+        typer.echo(f"{application.status}: {pick_line(application)}{suffix}")
+    for row in result.failed:
+        typer.echo(f"Failed {row.url}: {row.reason}", err=True)
+    if result.flagged:
+        lines = "\n".join(flagged_line(row) for row in result.flagged)
+        typer.echo(f"Flagged, waiting for your review:\n{lines}")
+        typer.echo("Decide with: resume_agent review proceed|drop <ID>...")
+    if result.failed:
+        raise typer.Exit(1)
+
+
+@app.command("update")
+def update(
+    company: Annotated[str, typer.Argument(help="Company name, or a variant in companies.yaml.")],
+    stage: Annotated[Stage, typer.Argument(case_sensitive=False, help="Stage reached.")],
+    day: Annotated[
+        datetime | None,
+        typer.Option("--date", formats=[ISO_DATE], help="Stage date; defaults to today."),
+    ] = None,
+    note: Annotated[str | None, typer.Option(help="Detail for timeline.md.")] = None,
+    title: Annotated[str | None, typer.Option(help="Job title, when several are open.")] = None,
+    application_id: Annotated[
+        int | None, typer.Option("--id", help="Application ID from the pick list.")
+    ] = None,
+    resume_file: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Applied with this resume PDF instead."),
+    ] = None,
+    letter_file: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Applied with this cover letter instead."),
+    ] = None,
+) -> None:
+    """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application.
+
+    Applied locks the resume and cover letter in the application folder.
+    """
+    if (resume_file or letter_file) and stage != Stage.APPLIED:
+        typer.echo("--resume-file and --letter-file only go with Applied.", err=True)
+        raise typer.Exit(1)
+    config = load_config_or_exit()
+    ats_passed = None
+    try:
+        tracker = open_tracker(config)
+        variants = load_variants(config.data_root)
+        application = find_application(tracker, company, variants, title, application_id)
+        stage_day = day.date() if day else today()
+        record_stage(application, stage, stage_day)
+        folder = application_dir(config.data_root, application)
+        if (resume_file or letter_file) and not folder:
+            raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
+        check_saveable(tracker, workbook_path(config.data_root))
+        if stage == Stage.APPLIED and folder:
+            ats_passed = lock_application(folder, config, stage_day, resume_file, letter_file)
+        save_tracker(tracker, config)
+        add_stage_event(application, stage, stage_day, config.data_root, note)
+    except Ambiguous as ambiguous:
+        lines = "\n".join(f"  {pick_line(app)}" for app in ambiguous.candidates)
+        typer.echo(f"Several open applications match {company}:\n{lines}", err=True)
+        typer.echo("Rerun with --id <ID>.", err=True)
+        raise typer.Exit(1) from ambiguous
+    except (DocumentError, GuardError, StageError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"{pick_line(application)}: {stage.value} {stage_day}")
+    if ats_passed is not None:
+        typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
+    elif stage == Stage.APPLIED:
+        typer.echo("No application folder, so no files were locked.", err=True)
 
 
 @dev_app.command("install-hooks")

@@ -9,6 +9,7 @@ from resume_agent.llm import LlmError
 from resume_agent.triage import (
     Requirements,
     add_fit,
+    company_from_url,
     extract_requirements,
     job_board,
     posting_age,
@@ -172,6 +173,47 @@ def test_extract_requirements():
     assert requirements == Requirements(3, ["Go"], ["BS in CS"])
 
 
+def test_company_and_role_come_from_the_listing(config, ledger_path):
+    reply = json.dumps(
+        {
+            "company": "Acme Health",
+            "role": "Senior Software Engineer",
+            "years_required": None,
+            "required_skills": [],
+            "other_requirements": [],
+        }
+    )
+    result = triage_listing(listing("Remote."), config, TODAY)
+
+    add_fit(result, "LISTING", ledger_path, lambda _: reply)
+
+    assert (result.company, result.role) == ("Acme Health", "Senior Software Engineer")
+
+
+def test_company_and_role_fall_back_to_url_and_title(config, ledger_path):
+    result = triage_listing(listing("Remote."), config, TODAY)
+
+    add_fit(result, "LISTING", ledger_path, fit_reply(None, []))
+
+    assert (result.company, result.role) == ("Acme", "Software Engineer")
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("https://job-boards.greenhouse.io/acme-health/jobs/1", "Acme Health"),
+        ("https://jobs.ashbyhq.com/globex/f2e5", "Globex"),
+        ("https://jobs.lever.co/initech/abc", "Initech"),
+        ("https://umbrella.wd5.myworkdayjobs.com/en-US/careers/job/1", "Umbrella"),
+        ("https://www.acme.com/careers/jobs/1", "Acme"),
+        ("https://www.linkedin.com/jobs/view/123", ""),
+        ("listing.pdf", ""),
+    ],
+)
+def test_company_from_url(source, expected):
+    assert company_from_url(source) == expected
+
+
 def test_malformed_requirements_are_tolerated():
     reply = '{"years_required": true, "required_skills": "Go", "other_requirements": 3}'
 
@@ -218,16 +260,20 @@ def test_two_missing_skills_is_a_note_three_is_a_flag(config, ledger_path):
     assert three.flags == ["3 required skills not in the ledger: Go, Rust, Kotlin"]
 
 
-def test_fit_skipped_without_ledger(config, tmp_path):
-    def fail_run(_):
-        raise AssertionError("LLM should not run")
-
-    result = add_fit(
-        triage_listing(listing("Remote."), config, TODAY), "L", tmp_path / "none.yaml", fail_run
+def test_fit_skipped_without_ledger_still_names_company_and_role(config, tmp_path):
+    reply = json.dumps(
+        {
+            "company": "Acme Health",
+            "role": "Senior Software Engineer",
+        }
     )
+    result = triage_listing(listing("Remote."), config, TODAY)
+
+    add_fit(result, "L", tmp_path / "none.yaml", lambda _: reply)
 
     assert result.notes[0].startswith("Fit check skipped: Skills ledger not found")
     assert "## Pending" in result.markdown()
+    assert (result.company, result.role) == ("Acme Health", "Senior Software Engineer")
 
 
 def test_fit_skipped_when_llm_fails(config, ledger_path):

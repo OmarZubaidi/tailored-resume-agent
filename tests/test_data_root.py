@@ -59,3 +59,4 @@ def test_init_command(config_data, write_config):
 
     assert result.exit_code == 0
     assert (load_config().data_root / "baselines/general").is_dir()
+    assert (load_config().data_root / "Job Applications.xlsx").is_file()

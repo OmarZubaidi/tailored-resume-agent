@@ -1,0 +1,85 @@
+from datetime import date
+
+from resume_agent.application_folder import (
+    add_timeline_event,
+    folder_name,
+    format_id,
+    move_folder,
+    next_id,
+)
+from resume_agent.tracker import Application, InboxRow, Tracker
+
+DAY = date(2026, 11, 21)
+
+
+def test_format_id_pads_to_five_digits():
+    assert format_id(42) == "00042"
+    assert format_id(123456) == "123456"
+
+
+def test_next_id_starts_at_one():
+    assert next_id(Tracker()) == 1
+
+
+def test_next_id_counts_inbox_and_applications():
+    tracker = Tracker(
+        applications=[
+            Application(
+                id=7,
+                company="Acme Health",
+                role="Engineer",
+            )
+        ],
+        inbox=[
+            InboxRow(
+                url="https://jobs.example.com/1",
+                id=9,
+            ),
+            InboxRow(url="https://jobs.example.com/2"),
+        ],
+    )
+
+    assert next_id(tracker) == 10
+
+
+def test_folder_name():
+    name = folder_name(42, "Acme Health", "Senior Software Engineer", DAY)
+
+    assert name == "00042 Acme Health - Senior Software Engineer (2026-11-21)"
+
+
+def test_folder_name_strips_unsafe_characters_and_long_parts():
+    name = folder_name(1, "Globex: R&D / Labs", "Engineer " + "x" * 100, DAY)
+
+    assert name.startswith("00001 Globex R&D Labs - Engineer xxx")
+    assert "/" not in name and ":" not in name
+    assert len(name) < 150
+
+
+def test_folder_name_falls_back_when_empty():
+    assert folder_name(1, "///", "", DAY) == "00001 Unknown - Unknown (2026-11-21)"
+
+
+def test_move_folder_keeps_an_earlier_move_of_the_same_row(tmp_path):
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "listing.md").write_text("first fetch")
+
+    folder = move_folder(staging, tmp_path, "00001 Acme Health - Engineer (2026-11-21)")
+
+    assert folder == tmp_path / "applications/00001 Acme Health - Engineer (2026-11-21)"
+    assert (folder / "listing.md").read_text() == "first fetch"
+    staging.mkdir()
+    (staging / "listing.md").write_text("second fetch")
+    assert move_folder(staging, tmp_path, folder.name) == folder
+    assert (folder / "listing.md").read_text() == "first fetch"
+    assert not staging.exists()
+
+
+def test_timeline_appends_dated_lines(tmp_path):
+    add_timeline_event(tmp_path, DAY, "Tailored (upward, general)")
+    add_timeline_event(tmp_path, date(2026, 11, 22), "Applied")
+
+    assert (tmp_path / "timeline.md").read_text() == (
+        "# Timeline\n\n- 2026-11-21 Tailored (upward, general)\n- 2026-11-22 Applied\n"
+    )
