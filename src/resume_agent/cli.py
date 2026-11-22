@@ -6,12 +6,13 @@ from typing import Annotated
 
 import typer
 
-from resume_agent.application_folder import application_dir
+from resume_agent.application_folder import application_dir, format_id
 from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
+from resume_agent.inbox import process_inbox
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.ledger import LedgerError
 from resume_agent.llm import LlmError, run_prompt
@@ -36,6 +37,7 @@ from resume_agent.stages import (
 )
 from resume_agent.tailor import TailorError
 from resume_agent.tracker import (
+    InboxRow,
     Stage,
     TrackerError,
     init_workbook,
@@ -185,6 +187,43 @@ def tailor(
         typer.echo(f"  Review: {flag}")
     typer.echo(f"ATS {'PASS' if result.render.passed else 'FAIL'}: {result.render.report}")
     if not result.render.passed:
+        raise typer.Exit(1)
+
+
+def flagged_line(row: InboxRow) -> str:
+    return f"  {format_id(row.id)}  {row.company} - {row.role}: {row.reason}"
+
+
+@app.command("inbox")
+def inbox() -> None:
+    """Fetch, triage and tailor every new URL in the Inbox sheet."""
+    config = load_config_or_exit()
+    path = workbook_path(config.data_root)
+    try:
+        ensure_excel_closed(path)
+        tracker = load_tracker(path)
+        result = process_inbox(
+            tracker,
+            config,
+            llm_runner(config),
+            date.today(),
+            save=lambda: save_tracker(tracker, config),
+            report=typer.echo,
+        )
+    except (GuardError, TrackerError) as error:
+        typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
+        raise typer.Exit(1) from error
+
+    for application in result.tailored:
+        suffix = f" ({application.notes})" if application.notes else ""
+        typer.echo(f"Tailored {pick_line(application)}{suffix}")
+    for row in result.failed:
+        typer.echo(f"Failed {row.url}: {row.reason}", err=True)
+    if result.flagged:
+        lines = "\n".join(flagged_line(row) for row in result.flagged)
+        typer.echo(f"Flagged, waiting for your review:\n{lines}")
+        typer.echo("Decide each with: resume_agent review <ID> proceed|drop")
+    if result.failed:
         raise typer.Exit(1)
 
 

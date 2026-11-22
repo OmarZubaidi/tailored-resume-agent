@@ -4,9 +4,9 @@ import pytest
 
 from resume_agent.application_folder import (
     add_timeline_event,
-    create_folder,
     folder_name,
     format_id,
+    move_folder,
     next_id,
 )
 from resume_agent.tracker import Application, InboxRow, Tracker
@@ -62,12 +62,18 @@ def test_folder_name_falls_back_when_empty():
     assert folder_name(1, "///", "", DAY) == "00001 Unknown - Unknown (2026-11-21)"
 
 
-def test_create_folder_refuses_existing(tmp_path):
-    folder = create_folder(tmp_path, "00001 Acme Health - Engineer (2026-11-21)")
+def test_move_folder_refuses_existing(tmp_path):
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "listing.md").write_text("listing")
+
+    folder = move_folder(staging, tmp_path, "00001 Acme Health - Engineer (2026-11-21)")
 
     assert folder == tmp_path / "applications/00001 Acme Health - Engineer (2026-11-21)"
-    with pytest.raises(FileExistsError):
-        create_folder(tmp_path, folder.name)
+    assert (folder / "listing.md").read_text() == "listing"
+    staging.mkdir()
+    with pytest.raises(FileExistsError, match="already exists"):
+        move_folder(staging, tmp_path, folder.name)
 
 
 def test_timeline_appends_dated_lines(tmp_path):

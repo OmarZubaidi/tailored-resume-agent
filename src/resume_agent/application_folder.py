@@ -31,9 +31,12 @@ def folder_name(application_id: int, company: str, role: str, day: date) -> str:
     return f"{format_id(application_id)} {safe_part(company)} - {safe_part(role)} ({day})"
 
 
-def create_folder(data_root: Path, name: str) -> Path:
+def move_folder(source: Path, data_root: Path, name: str) -> Path:
     folder = data_root / APPLICATIONS_DIR / name
-    folder.mkdir(parents=True, exist_ok=False)
+    if folder.exists():
+        raise FileExistsError(f"Application folder already exists: {folder}")
+    folder.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(folder)
     return folder
 
 

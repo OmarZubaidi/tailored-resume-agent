@@ -132,13 +132,15 @@ APPLICATIONS = Layout(
     bold=frozenset({"Company"}),
 )
 INBOX = Layout(
-    columns=("URL", "Mode", "Baseline", "Status", "ID", "Folder", "Reason"),
+    columns=("URL", "Mode", "Baseline", "Status", "ID", "Company", "Role", "Folder", "Reason"),
     widths={
         "URL": 50,
         "Mode": 8,
         "Baseline": 10,
         "Status": 9,
         **dict.fromkeys(ID_COLUMNS, ID_WIDTH),
+        "Company": 20,
+        "Role": 28,
         "Reason": 50,
     },
     inputs=frozenset({"URL", "Mode", "Baseline"}),
@@ -198,6 +200,8 @@ class InboxRow:
     baseline: str = ""
     status: str = ""
     id: int | None = None
+    company: str = ""
+    role: str = ""
     folder: str = ""
     reason: str = ""
 
@@ -350,6 +354,8 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
             "Baseline": item.baseline,
             "Status": item.status,
             "ID": item.id,
+            "Company": item.company,
+            "Role": item.role,
             "Folder": item.id if item.folder else None,
             "Reason": item.reason,
         }
@@ -520,6 +526,8 @@ def read_inbox_row(number: int, record: dict) -> InboxRow:
         baseline=cell_text(record["Baseline"]),
         status=cell_text(record["Status"]).lower(),
         id=cell_id(record["ID"], f"{INBOX_SHEET} row {number}"),
+        company=cell_text(record["Company"]),
+        role=cell_text(record["Role"]),
         folder=cell_text(record["Folder"]),
         reason=cell_text(record["Reason"]),
     )
