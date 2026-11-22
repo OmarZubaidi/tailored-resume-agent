@@ -14,6 +14,7 @@ LISTING_PDF = "listing.pdf"
 LISTING_MD = "listing.md"
 SOURCE_PREFIX = "Source: "
 TITLE_PREFIX = "Title: "
+PDF_SOURCE_PREFIX = "file: "
 CONTENT_SELECTORS = ("main", "article", "[role=main]", "body")
 MIN_CONTENT_CHARS = 200
 NAVIGATION_TIMEOUT_MS = 45_000
@@ -92,7 +93,8 @@ def listing_from_pdf(pdf: Path, out_dir: Path) -> Listing:
     except PSException as error:
         raise ListingError(f"{pdf.name} is not a readable PDF: {error}") from error
     title = one_line(next((line for line in text.splitlines() if line.strip()), ""))
-    return save_listing(Listing(source=f"file: {pdf.name}", title=title, text=text), out_dir)
+    listing = Listing(source=f"{PDF_SOURCE_PREFIX}{pdf.name}", title=title, text=text)
+    return save_listing(listing, out_dir)
 
 
 def read_listing(path: Path) -> Listing:
