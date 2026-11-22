@@ -1,0 +1,17 @@
+data_root: "~/Library/CloudStorage/ProtonDrive-*/2 Need/Career/Resume Agent Data"
+name: "First Last"
+email: "you@example.com"
+phone: "(555) 555-5555"
+location: "City, ST"
+links:
+  github: "github.com/<username>"
+  linkedin: "linkedin.com/in/<username>"
+home_industry: healthcare
+industry_keywords:
+  healthcare: [FHIR, EHR, HL7, X12, ERA, claims, revenue cycle, telemedicine, patient, insurance eligibility]
+default_baseline: general
+apply_on_my_behalf: false
+email_scan_hours: 6
+llm:
+  provider: claude-code
+  model: null
