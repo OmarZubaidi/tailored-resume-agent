@@ -3,6 +3,7 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+from browser_marks import needs_browser
 from typer.testing import CliRunner
 
 from resume_agent import cli
@@ -10,9 +11,6 @@ from resume_agent.cli import app
 from resume_agent.config import Config
 from resume_agent.guards.rules import lock_applied_files
 from resume_agent.pipeline import Mode, detect_mode, tailor_folder
-
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
 CURRENT = "Software Engineer @ Acme Health, 01/2023 - present"
 RESUME = f"""---
@@ -103,7 +101,7 @@ def test_detect_mode(config, listing, mode):
     assert detect_mode(listing, config) is mode
 
 
-@needs_chrome
+@needs_browser
 def test_tailor_folder_writes_every_file(config, folder):
     result = tailor_folder(folder, config, fake_run, today=date(2026, 11, 21))
 
@@ -119,7 +117,7 @@ def test_tailor_folder_writes_every_file(config, folder):
     assert (folder / "First-Last-Resume.pdf").exists()
 
 
-@needs_chrome
+@needs_browser
 def test_locked_folder_is_tailored_into_drafts(config, folder):
     for name in ("resume.md", "cover-letter.md"):
         (folder / name).write_text("applied version")

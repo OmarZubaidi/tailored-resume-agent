@@ -6,7 +6,16 @@ from pathlib import Path, PurePosixPath
 
 from resume_agent.config import ConfigError, load_config
 
-BLOCKED_NAME_PATTERNS = ("*.pdf", "listing.*", "*.xlsx", "*.xls", "*.docx", "~$*", "config.yaml")
+BLOCKED_NAME_PATTERNS = (
+    "*.pdf",
+    "listing.*",
+    "*.xlsx",
+    "*.xls",
+    "*.docx",
+    "~$*",
+    "config.yaml",
+    "client_secret*.json",
+)
 BLOCKED_DIRS = (".state", "drafts")
 PROTON_ACCOUNT_PATH = re.compile(r"ProtonDrive-[^/\s\"'*]*@")
 

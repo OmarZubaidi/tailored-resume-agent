@@ -115,6 +115,32 @@ def test_cli_failure_is_an_llm_error(monkeypatch, config_data):
         run_prompt(config_with(config_data, Provider.CLAUDE_CODE), "Hi")
 
 
+def test_cli_failure_shows_stdout_ahead_of_stderr_warnings(monkeypatch, config_data):
+    monkeypatch.setattr(llm, "find_claude", lambda: Path("/bin/claude"))
+    monkeypatch.setattr(
+        llm.subprocess,
+        "run",
+        lambda command, **_: subprocess.CompletedProcess(
+            command, 1, stdout="Usage limit reached", stderr="Permission deny rule warning"
+        ),
+    )
+
+    with pytest.raises(LlmError, match="claude failed: Usage limit reached\nPermission deny"):
+        run_prompt(config_with(config_data, Provider.CLAUDE_CODE), "Hi")
+
+
+def test_silent_cli_failure_reports_exit_code(monkeypatch, config_data):
+    monkeypatch.setattr(llm, "find_claude", lambda: Path("/bin/claude"))
+    monkeypatch.setattr(
+        llm.subprocess,
+        "run",
+        lambda command, **_: subprocess.CompletedProcess(command, 2, stdout="", stderr=""),
+    )
+
+    with pytest.raises(LlmError, match="claude failed: exit code 2"):
+        run_prompt(config_with(config_data, Provider.CLAUDE_CODE), "Hi")
+
+
 def test_ollama_requires_model(config_data):
     with pytest.raises(LlmError, match="Set llm.model"):
         run_prompt(config_with(config_data, Provider.OLLAMA), "Hi")

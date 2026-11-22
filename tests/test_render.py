@@ -1,8 +1,8 @@
 import re
 from html import escape
-from pathlib import Path
 
 import pytest
+from browser_marks import needs_browser
 
 from resume_agent.config import Config
 from resume_agent.documents import parse_cover_letter, parse_resume
@@ -18,9 +18,6 @@ from resume_agent.render import (
 )
 
 NOBREAK = re.compile(r'<span class="nobreak">(.*?)</span>')
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
-
 RESUME = """---
 headline: Software Engineer · TypeScript
 ---
@@ -112,7 +109,7 @@ def test_cover_letter_html_has_signature_block(config):
     assert "linkedin" not in signature
 
 
-@needs_chrome
+@needs_browser
 def test_render_pdf_writes_one_letter_page(config, tmp_path):
     output = tmp_path / "resume.pdf"
 
@@ -124,7 +121,7 @@ def test_render_pdf_writes_one_letter_page(config, tmp_path):
     assert re.search(rb"/MediaBox \[0 0 612 792\]", data)
 
 
-@needs_chrome
+@needs_browser
 def test_contact_line_over_two_rows_fails(config, tmp_path):
     long_config = config.model_copy(update={"location": "x" * 200})
 

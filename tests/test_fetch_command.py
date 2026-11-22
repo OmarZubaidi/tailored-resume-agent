@@ -1,12 +1,7 @@
-from pathlib import Path
-
-import pytest
+from browser_marks import needs_browser
 from typer.testing import CliRunner
 
 from resume_agent.cli import app
-
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
 REQUIREMENTS = " ".join(f"Experience with system number {n}." for n in range(80))
 PAGE = f"""<!doctype html>
@@ -39,7 +34,7 @@ def test_fetch_missing_pdf(config_data, write_config, tmp_path):
     assert "missing.pdf" in result.output
 
 
-@needs_chrome
+@needs_browser
 def test_fetch_url_writes_listing_and_triage(config_data, write_config, tmp_path):
     write_config(
         {

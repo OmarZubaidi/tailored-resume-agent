@@ -2,7 +2,7 @@ from html import escape
 from importlib.resources import files
 from pathlib import Path
 
-from resume_agent.browser import chrome_page
+from resume_agent.browser import browser_page
 from resume_agent.config import Config
 from resume_agent.documents import CoverLetter, Resume, Role, Section
 
@@ -143,7 +143,7 @@ def render_pdf(html: str, output: Path) -> None:
         "width": CONTENT_WIDTH_PX,
         "height": 1000,
     }
-    with chrome_page(viewport) as page:
+    with browser_page(viewport) as page:
         page.set_content(html, wait_until="load")
         rows = page.evaluate(COUNT_CONTACT_ROWS_JS)
         if rows > MAX_CONTACT_ROWS:
