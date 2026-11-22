@@ -9,7 +9,7 @@ from resume_agent.config import Config
 from resume_agent.job_listing import Listing
 from resume_agent.ledger import Ledger, LedgerError, load_ledger, whole_years
 from resume_agent.llm import LlmError
-from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
+from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, text_value
 
 TRIAGE_MD = "triage.md"
 MAX_MISSING_SKILLS = 2
@@ -121,10 +121,6 @@ def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requir
         company=text_value(data.get("company")),
         role=text_value(data.get("role")),
     )
-
-
-def text_value(value: object) -> str:
-    return value.strip() if isinstance(value, str) else ""
 
 
 def string_list(value: object) -> list[str]:
