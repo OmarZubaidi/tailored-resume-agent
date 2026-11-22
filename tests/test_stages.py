@@ -8,6 +8,7 @@ from resume_agent.config import Config
 from resume_agent.stages import (
     Ambiguous,
     StageError,
+    add_stage_event,
     find_application,
     load_variants,
     normalize,
@@ -101,16 +102,26 @@ def test_bad_variants_file(tmp_path):
         load_variants(tmp_path)
 
 
-def test_record_stage_writes_timeline(tmp_path):
+def test_stage_event_writes_timeline(tmp_path):
     folder = tmp_path / "applications/00003 Globex - Engineer (2026-11-02)"
     folder.mkdir(parents=True)
     globex = application(3, "Globex", "Engineer", date(2026, 11, 2))
     globex.folder = folder.name
 
-    record_stage(globex, Stage.SECOND, date(2026, 12, 10), tmp_path, "technical")
+    record_stage(globex, Stage.SECOND, date(2026, 12, 10))
+    add_stage_event(globex, Stage.SECOND, date(2026, 12, 10), tmp_path, "technical")
 
     assert globex.stages[Stage.SECOND] == date(2026, 12, 10)
     assert (folder / "timeline.md").read_text().endswith("- 2026-12-10 2nd: technical\n")
+
+
+def test_recorded_stage_is_not_overwritten():
+    globex = application(3, "Globex", "Engineer", date(2026, 11, 2))
+
+    with pytest.raises(StageError, match="already has Applied 2026-11-02"):
+        record_stage(globex, Stage.APPLIED, date(2026, 11, 20))
+
+    assert globex.stages[Stage.APPLIED] == date(2026, 11, 2)
 
 
 @pytest.fixture

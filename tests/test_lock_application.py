@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 from resume_agent import pipeline
 from resume_agent.cli import app
 from resume_agent.config import Config
-from resume_agent.guards.rules import GuardError, is_locked
+from resume_agent.guards.rules import GuardError, excel_lock_file, is_locked
 from resume_agent.pipeline import applied_files, lock_application
 from resume_agent.tracker import (
     Application,
@@ -123,6 +123,18 @@ def test_update_applied_locks_and_records(config, folder, ats_runs):
     saved = load_tracker(workbook_path(config.data_root))
     assert saved.applications[0].stages == {Stage.APPLIED: DAY}
     assert (folder / "timeline.md").read_text().endswith("- 2026-11-21 Applied\n")
+
+
+def test_nothing_is_locked_when_the_workbook_cannot_be_saved(config, folder, ats_runs):
+    save_one_application(config)
+    excel_lock_file(workbook_path(config.data_root)).write_text("")
+
+    result = CliRunner().invoke(app, ["update", "Acme Health", "applied"])
+
+    assert result.exit_code == 1
+    assert "open in Excel" in result.output
+    assert not is_locked(folder / "resume.md")
+    assert not (folder / "timeline.md").exists()
 
 
 def test_applied_without_folder_warns(config, ats_runs):

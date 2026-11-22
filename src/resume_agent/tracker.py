@@ -435,14 +435,18 @@ def ignore_formula_errors(path: Path) -> None:
             target.writestr(info, data)
 
 
-def save_tracker(tracker: Tracker, config: Config, today: date | None = None) -> Path:
-    path = workbook_path(config.data_root)
+def check_saveable(tracker: Tracker, path: Path) -> None:
     ensure_excel_closed(path)
     if tracker.loaded_version is not None and path.stat().st_mtime_ns != tracker.loaded_version:
         raise TrackerError(
             f"{path.name} changed since it was loaded, probably edited in Excel. "
             "Rerun to pick up the changes."
         )
+
+
+def save_tracker(tracker: Tracker, config: Config, today: date | None = None) -> Path:
+    path = workbook_path(config.data_root)
+    check_saveable(tracker, path)
     workbook = new_workbook(config.excel_template)
     write_inbox(workbook.create_sheet(INBOX_SHEET), tracker.inbox, baseline_names(config.data_root))
     write_applications(workbook.create_sheet(APPLICATIONS_SHEET), tracker.applications)

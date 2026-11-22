@@ -120,14 +120,22 @@ def pick_line(application: Application) -> str:
     return f"{format_id(application.id)}  {application.company} - {application.role} ({started})"
 
 
-def record_stage(
+def record_stage(application: Application, stage: Stage, day: date) -> None:
+    if stage in application.stages:
+        raise StageError(
+            f"{pick_line(application)} already has {stage.value} "
+            f"{application.stages[stage]}. Change the cell in Excel if it is wrong."
+        )
+    application.stages[stage] = day
+
+
+def add_stage_event(
     application: Application,
     stage: Stage,
     day: date,
     data_root: Path,
     note: str | None = None,
 ) -> None:
-    application.stages[stage] = day
     folder = application_dir(data_root, application)
     if folder:
         add_timeline_event(folder, day, f"{stage.value}: {note}" if note else stage.value)

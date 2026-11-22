@@ -29,6 +29,7 @@ from resume_agent.render import RenderError
 from resume_agent.stages import (
     Ambiguous,
     StageError,
+    add_stage_event,
     find_application,
     load_variants,
     pick_line,
@@ -39,6 +40,7 @@ from resume_agent.tracker import (
     Stage,
     Tracker,
     TrackerError,
+    check_saveable,
     init_workbook,
     load_tracker,
     save_tracker,
@@ -288,13 +290,15 @@ def update(
         variants = load_variants(config.data_root)
         application = find_application(tracker, company, variants, title, application_id)
         stage_day = day.date() if day else today()
+        record_stage(application, stage, stage_day)
         folder = application_dir(config.data_root, application)
+        if (resume_file or letter_file) and not folder:
+            raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
+        check_saveable(tracker, workbook_path(config.data_root))
         if stage == Stage.APPLIED and folder:
             ats_passed = lock_application(folder, config, stage_day, resume_file, letter_file)
-        elif resume_file or letter_file:
-            raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
-        record_stage(application, stage, stage_day, config.data_root, note)
         save_tracker(tracker, config)
+        add_stage_event(application, stage, stage_day, config.data_root, note)
     except Ambiguous as ambiguous:
         lines = "\n".join(f"  {pick_line(app)}" for app in ambiguous.candidates)
         typer.echo(f"Several open applications match {company}:\n{lines}", err=True)
