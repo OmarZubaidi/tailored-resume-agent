@@ -11,17 +11,26 @@ from resume_agent.config import Config
 from resume_agent.email_scan import (
     SCAN_QUERY,
     EmailKind,
+    PendingUpdate,
     classify_email,
     describe_update,
     load_pending,
     notification,
     proposed_stage,
+    save_pending,
     scan_mailbox,
 )
 from resume_agent.gmail import Email, Mailbox
 from resume_agent.llm import LlmError
 from resume_agent.prompts import PromptError
-from resume_agent.tracker import Application, Stage, Tracker, save_tracker
+from resume_agent.tracker import (
+    Application,
+    Stage,
+    Tracker,
+    load_tracker,
+    save_tracker,
+    workbook_path,
+)
 
 EMAIL = Email(
     id="m1",
@@ -268,3 +277,107 @@ def test_scan_command_notifies_failures(monkeypatch, config):
 
     assert result.exit_code == 1
     assert notices == ["Gmail scan failed: usage limit reached"]
+
+
+def pending(number: int, kind: EmailKind, application_id=None, candidates=()) -> PendingUpdate:
+    return PendingUpdate(
+        number=number,
+        message_id=f"m{number}",
+        received=date(2026, 11, 20),
+        sender="Acme Health <no-reply@greenhouse.io>",
+        subject="Your application",
+        kind=kind,
+        company="Acme Health" if application_id == 1 else "Globex",
+        role="",
+        application_id=application_id,
+        candidates=list(candidates),
+    )
+
+
+@pytest.fixture
+def queued(config) -> Config:
+    save_pending(
+        config.data_root,
+        [
+            pending(1, EmailKind.REJECTION, application_id=1),
+            pending(2, EmailKind.INTERVIEW, candidates=[2, 3]),
+        ],
+    )
+    return config
+
+
+def invoke(*args: str):
+    return CliRunner().invoke(app, ["updates", *args])
+
+
+def saved_stages(config: Config, application_id: int) -> dict:
+    tracker = load_tracker(workbook_path(config.data_root))
+    return next(app.stages for app in tracker.applications if app.id == application_id)
+
+
+def test_updates_lists_pending_with_hint(queued):
+    result = invoke()
+
+    assert result.exit_code == 0, result.output
+    assert "1. 2026-11-20 Acme Health rejection → 00001" in result.output
+    assert "2. 2026-11-20 Globex interview → pick one of 00002, 00003" in result.output
+    assert "updates confirm <n>" in result.output
+
+
+def test_updates_with_nothing_pending(config):
+    result = invoke()
+
+    assert result.output == "No pending updates.\n"
+
+
+def test_confirm_records_stage_and_clears_it(queued):
+    result = invoke("confirm", "1")
+
+    assert result.exit_code == 0, result.output
+    assert saved_stages(queued, 1)[Stage.REJECTED] == date(2026, 11, 20)
+    assert [update.number for update in load_pending(queued.data_root)] == [2]
+
+
+def test_unmatched_update_needs_an_id(queued):
+    without_id = invoke("confirm", "2")
+    with_id = invoke("confirm", "2", "--id", "3")
+
+    assert without_id.exit_code == 1
+    assert "Rerun with --id <ID>" in without_id.output
+    assert with_id.exit_code == 0, with_id.output
+    assert saved_stages(queued, 3)[Stage.FIRST] == date(2026, 11, 20)
+
+
+def test_id_goes_with_one_number(queued):
+    result = invoke("confirm", "1", "2", "--id", "3")
+
+    assert result.exit_code == 1
+    assert "single update number" in result.output
+
+
+def test_already_recorded_stage_stays_pending(queued):
+    invoke("confirm", "1")
+    save_pending(queued.data_root, [pending(3, EmailKind.REJECTION, application_id=1)])
+
+    result = invoke("confirm", "3")
+
+    assert result.exit_code == 1
+    assert "already has Rejected" in result.output
+    assert [update.number for update in load_pending(queued.data_root)] == [3]
+
+
+def test_reject_discards_without_touching_the_tracker(queued):
+    result = invoke("reject", "1")
+
+    assert result.exit_code == 0, result.output
+    assert "Discarded 1. Acme Health rejection" in result.output
+    assert Stage.REJECTED not in saved_stages(queued, 1)
+    assert [update.number for update in load_pending(queued.data_root)] == [2]
+
+
+def test_unknown_number_changes_nothing(queued):
+    result = invoke("reject", "1", "9")
+
+    assert result.exit_code == 1
+    assert "No pending update 9" in result.output
+    assert len(load_pending(queued.data_root)) == 2

@@ -8,10 +8,11 @@ from enum import StrEnum
 from pathlib import Path
 
 from resume_agent.application_folder import format_id
+from resume_agent.config import Config
 from resume_agent.data_root import STATE_DIR
 from resume_agent.gmail import Email, Mailbox
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, text_value
-from resume_agent.stages import Ambiguous, StageError, find_application, pick_line
+from resume_agent.stages import Ambiguous, StageError, find_application, pick_line, save_stage
 from resume_agent.tracker import Application, Stage, Tracker
 
 MAX_EMAIL_CHARACTERS = 8_000
@@ -268,7 +269,10 @@ def target_line(update: PendingUpdate, tracker: Tracker) -> str:
         if update.candidates:
             return f"pick one of {', '.join(format_id(app_id) for app_id in update.candidates)}"
         return "no open application matched"
-    application = find_application(tracker, "", {}, application_id=update.application_id)
+    try:
+        application = find_application(tracker, "", {}, application_id=update.application_id)
+    except StageError as error:
+        return str(error)
     stage = proposed_stage(update.kind, application)
     return f"{pick_line(application)}: {stage.value if stage else 'no round after 3rd'}"
 
@@ -278,6 +282,33 @@ def describe_update(update: PendingUpdate, tracker: Tracker) -> str:
         f"{update.number}. {update.received} {update.source} {update.kind.value}"
         f" → {target_line(update, tracker)}"
     )
+
+
+def pending_update(pending: list[PendingUpdate], number: int) -> PendingUpdate:
+    found = next((update for update in pending if update.number == number), None)
+    if found is None:
+        raise ScanError(f"No pending update {number}. List them with `resume_agent updates`.")
+    return found
+
+
+def confirm_update(
+    update: PendingUpdate,
+    tracker: Tracker,
+    config: Config,
+    application_id: int | None = None,
+) -> tuple[Application, Stage]:
+    chosen = update.application_id if application_id is None else application_id
+    if chosen is None:
+        raise ScanError(f"{describe_update(update, tracker)}\nRerun with --id <ID>.")
+    application = find_application(tracker, "", {}, application_id=chosen)
+    stage = proposed_stage(update.kind, application)
+    if stage is None:
+        raise StageError(
+            f"{pick_line(application)} already had a 3rd round. "
+            "Record Offer or Rejected with `resume_agent update`."
+        )
+    save_stage(tracker, application, stage, update.received, config, update.note)
+    return application, stage
 
 
 def notification(added: list[PendingUpdate]) -> str:

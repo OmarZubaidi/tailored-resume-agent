@@ -13,9 +13,13 @@ from resume_agent.data_root import dataless_paths, dataless_warning, init_data_r
 from resume_agent.documents import DocumentError
 from resume_agent.email_scan import (
     ScanError,
+    confirm_update,
     describe_update,
+    load_pending,
     notification,
     notify,
+    pending_update,
+    save_pending,
     scan_mailbox,
 )
 from resume_agent.gmail import GmailError, open_mailbox
@@ -39,18 +43,16 @@ from resume_agent.render import RenderError
 from resume_agent.stages import (
     Ambiguous,
     StageError,
-    add_stage_event,
     find_application,
     load_variants,
     pick_line,
-    record_stage,
+    save_stage,
 )
 from resume_agent.tracker import (
     InboxRow,
     Stage,
     Tracker,
     TrackerError,
-    check_saveable,
     init_workbook,
     load_tracker,
     save_tracker,
@@ -66,6 +68,8 @@ dev_app = typer.Typer(help="Developer setup.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
 gmail_app = typer.Typer(help="Read-only Gmail sign-in and scan.", no_args_is_help=True)
 app.add_typer(gmail_app, name="gmail")
+updates_app = typer.Typer(help="Review stage updates proposed by the Gmail scan.")
+app.add_typer(updates_app, name="updates")
 HOOKS_PATH = ".githooks"
 ISO_DATE = "%Y-%m-%d"
 
@@ -296,21 +300,21 @@ def update(
         typer.echo("--resume-file and --letter-file only go with Applied.", err=True)
         raise typer.Exit(1)
     config = load_config_or_exit()
-    ats_passed = None
     try:
         tracker = open_tracker(config)
         variants = load_variants(config.data_root)
         application = find_application(tracker, company, variants, title, application_id)
         stage_day = day.date() if day else today()
-        record_stage(application, stage, stage_day)
         folder = application_dir(config.data_root, application)
         if (resume_file or letter_file) and not folder:
             raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
-        check_saveable(tracker, workbook_path(config.data_root))
-        if stage == Stage.APPLIED and folder:
-            ats_passed = lock_application(folder, config, stage_day, resume_file, letter_file)
-        save_tracker(tracker, config)
-        add_stage_event(application, stage, stage_day, config.data_root, note)
+
+        def lock_files() -> bool | None:
+            if stage != Stage.APPLIED or not folder:
+                return None
+            return lock_application(folder, config, stage_day, resume_file, letter_file)
+
+        ats_passed = save_stage(tracker, application, stage, stage_day, config, note, lock_files)
     except Ambiguous as ambiguous:
         lines = "\n".join(f"  {pick_line(app)}" for app in ambiguous.candidates)
         typer.echo(f"Several open applications match {company}:\n{lines}", err=True)
@@ -366,6 +370,74 @@ def gmail_scan() -> None:
         typer.echo(describe_update(update, tracker))
     if added:
         notify(notification(added))
+
+
+UPDATES_HINT = (
+    "Confirm with: resume_agent updates confirm <n>... (--id <ID> to pick the application)\n"
+    "Discard with: resume_agent updates reject <n>..."
+)
+UpdateNumbers = Annotated[list[int], typer.Argument(help="Numbers from `resume_agent updates`.")]
+
+
+@updates_app.callback(invoke_without_command=True)
+def updates(context: typer.Context) -> None:
+    """List stage updates the Gmail scan proposed. Nothing changes until you confirm one."""
+    if context.invoked_subcommand:
+        return
+    config = load_config_or_exit()
+    try:
+        tracker = load_tracker(workbook_path(config.data_root))
+        pending = load_pending(config.data_root)
+    except (ScanError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    if not pending:
+        typer.echo("No pending updates.")
+        return
+    for update in pending:
+        typer.echo(describe_update(update, tracker))
+    typer.echo(UPDATES_HINT)
+
+
+@updates_app.command("confirm")
+def updates_confirm(
+    numbers: UpdateNumbers,
+    application_id: Annotated[
+        int | None, typer.Option("--id", help="Application ID, when the scan found no match.")
+    ] = None,
+) -> None:
+    """Record the proposed stages in the tracker."""
+    if application_id is not None and len(numbers) != 1:
+        typer.echo("--id goes with a single update number.", err=True)
+        raise typer.Exit(1)
+    config = load_config_or_exit()
+    try:
+        tracker = open_tracker(config)
+        pending = load_pending(config.data_root)
+        for number in dict.fromkeys(numbers):
+            update = pending_update(pending, number)
+            application, stage = confirm_update(update, tracker, config, application_id)
+            pending.remove(update)
+            save_pending(config.data_root, pending)
+            typer.echo(f"{pick_line(application)}: {stage.value} {update.received}")
+    except (GuardError, ScanError, StageError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+
+@updates_app.command("reject")
+def updates_reject(numbers: UpdateNumbers) -> None:
+    """Discard proposed updates without changing the tracker."""
+    config = load_config_or_exit()
+    try:
+        pending = load_pending(config.data_root)
+        rejected = [pending_update(pending, number) for number in dict.fromkeys(numbers)]
+        save_pending(config.data_root, [update for update in pending if update not in rejected])
+    except ScanError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    for update in rejected:
+        typer.echo(f"Discarded {update.number}. {update.source} {update.kind.value}")
 
 
 @dev_app.command("install-hooks")
