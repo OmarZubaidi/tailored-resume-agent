@@ -19,6 +19,7 @@ NUMBER_WORDS = (
     "fifteen sixteen seventeen eighteen nineteen twenty"
 ).split()
 LONG_DASH = re.compile(r"[–—]")
+SENTENCE_COLON = re.compile(r"\w+:(?=\s)")
 YEARS_MENTION = re.compile(r"\b\w+\+? years?\b", re.IGNORECASE)
 NO_VOICE_NOTES = "None yet. Write in a plain, professional register."
 WORD_ALLOWANCE = 1.1
@@ -91,6 +92,7 @@ def style_problems(text: str) -> list[str]:
     problems += [f"uses contrast framing: {match!r}" for match in CONTRAST_FRAMING.findall(text)]
     if LONG_DASH.search(text):
         problems.append("uses an en or em dash")
+    problems += [f"uses a colon: {match!r}" for match in SENTENCE_COLON.findall(text)]
     problems += casing_problems(text)
     problems += [f"leaves the placeholder {item}" for item in open_placeholders(text.splitlines())]
     return problems

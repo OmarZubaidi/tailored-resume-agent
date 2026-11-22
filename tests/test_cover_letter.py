@@ -73,6 +73,7 @@ def test_years_in_words(months, words):
         ("It's not about speed, it's about care.", "uses contrast framing"),
         ("I bring not only skill, but grit.", "uses contrast framing"),
         ("Built it fast — and well.", "uses an en or em dash"),
+        ("On your stack: I know it.", "uses a colon: 'stack:'"),
         ("I like [Company Name].", "leaves the placeholder [Company Name]"),
         ("i built the fax api.", "starts a sentence in lowercase: 'i'"),
         ("I built it. then I tested it.", "starts a sentence in lowercase: 'then'"),
@@ -92,7 +93,7 @@ def test_plain_writing_has_no_style_problems():
 
 
 def test_abbreviations_and_mixed_case_names_pass_the_casing_check():
-    text = "I used tools, e.g. pytest, i.e. the usual. It ships on iOS and eBay.\n\nBest,\nJane"
+    text = "I used tools, e.g. pytest, i.e. the usual. It ships at 9:30 on iOS.\n\nBest,\nJane"
 
     assert style_problems(text) == []
 
