@@ -153,7 +153,8 @@ def review_rows(
     today: date,
     save: Callable[[], None],
 ) -> InboxResult:
-    rows = [flagged_row(tracker, application_id) for application_id in application_ids]
+    unique_ids = dict.fromkeys(application_ids)
+    rows = [flagged_row(tracker, application_id) for application_id in unique_ids]
     result = InboxResult()
     for row in rows:
         if decision == Decision.DROP:

@@ -37,6 +37,7 @@ from resume_agent.stages import (
 from resume_agent.tracker import (
     InboxRow,
     Stage,
+    Tracker,
     TrackerError,
     init_workbook,
     load_tracker,
@@ -179,6 +180,16 @@ def tailor(
         raise typer.Exit(1)
 
 
+def today() -> date:
+    return date.today()
+
+
+def open_tracker(config: Config) -> Tracker:
+    path = workbook_path(config.data_root)
+    ensure_excel_closed(path)
+    return load_tracker(path)
+
+
 def flagged_line(row: InboxRow) -> str:
     return f"  {format_id(row.id)}  {row.company} - {row.role}: {row.reason}"
 
@@ -187,15 +198,13 @@ def flagged_line(row: InboxRow) -> str:
 def inbox() -> None:
     """Fetch, triage and tailor every new URL in the Inbox sheet."""
     config = load_config_or_exit()
-    path = workbook_path(config.data_root)
     try:
-        ensure_excel_closed(path)
-        tracker = load_tracker(path)
+        tracker = open_tracker(config)
         result = process_inbox(
             tracker,
             config,
             llm_runner(config),
-            date.today(),
+            today(),
             save=lambda: save_tracker(tracker, config),
             report=typer.echo,
         )
@@ -212,17 +221,15 @@ def review(
 ) -> None:
     """Proceed with or drop flagged Inbox jobs."""
     config = load_config_or_exit()
-    path = workbook_path(config.data_root)
     try:
-        ensure_excel_closed(path)
-        tracker = load_tracker(path)
+        tracker = open_tracker(config)
         result = review_rows(
             tracker,
             application_ids,
             decision,
             config,
             llm_runner(config),
-            date.today(),
+            today(),
             save=lambda: save_tracker(tracker, config),
         )
     except (GuardError, InboxError, TrackerError) as error:
@@ -254,9 +261,7 @@ def update(
         typer.Option("--date", formats=[ISO_DATE], help="Stage date; defaults to today."),
     ] = None,
     note: Annotated[str | None, typer.Option(help="Detail for timeline.md.")] = None,
-    title: Annotated[
-        str | None, typer.Option(help="Job title or req ID, when several are open.")
-    ] = None,
+    title: Annotated[str | None, typer.Option(help="Job title, when several are open.")] = None,
     application_id: Annotated[
         int | None, typer.Option("--id", help="Application ID from the pick list.")
     ] = None,
@@ -279,12 +284,10 @@ def update(
     config = load_config_or_exit()
     ats_passed = None
     try:
-        path = workbook_path(config.data_root)
-        ensure_excel_closed(path)
-        tracker = load_tracker(path)
+        tracker = open_tracker(config)
         variants = load_variants(config.data_root)
         application = find_application(tracker, company, variants, title, application_id)
-        stage_day = day.date() if day else date.today()
+        stage_day = day.date() if day else today()
         folder = application_dir(config.data_root, application)
         if stage == Stage.APPLIED and folder:
             ats_passed = lock_application(folder, config, stage_day, resume_file, letter_file)

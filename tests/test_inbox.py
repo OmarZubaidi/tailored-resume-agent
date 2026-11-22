@@ -217,7 +217,12 @@ def test_inbox_command_lists_flagged_jobs(config, calls, monkeypatch):
     assert "resume_agent review proceed|drop <ID>..." in result.output
 
 
-def test_review_proceed_tailors_and_drop_skips(config, calls, monkeypatch):
+@pytest.fixture
+def fixed_today(monkeypatch) -> None:
+    monkeypatch.setattr(cli, "today", lambda: TODAY)
+
+
+def test_review_proceed_tailors_and_drop_skips(config, calls, monkeypatch, fixed_today):
     monkeypatch.setattr(cli, "run_prompt", lambda _, prompt: fake_llm(prompt))
     other = "https://jobs.example.com/globex/3"
     staff = ("Globex", "Staff Engineer", "Remote. TS/SCI clearance required.")
@@ -236,6 +241,16 @@ def test_review_proceed_tailors_and_drop_skips(config, calls, monkeypatch):
     assert [app.status for app in saved.applications] == ["Interested", "Skipped"]
     skipped_folder = config.data_root / "applications" / saved.applications[1].folder
     assert (skipped_folder / "timeline.md").read_text().endswith("- 2026-11-21 Skipped\n")
+
+
+def test_review_ignores_repeated_ids(config, calls, fixed_today):
+    run(Tracker(inbox=[InboxRow(url=FLAGGED_URL)]), config)
+
+    result = CliRunner().invoke(app, ["review", "drop", "1", "1"])
+
+    assert result.exit_code == 0, result.output
+    folder = config.data_root / "applications/00001 Globex - Platform Engineer (2026-11-21)"
+    assert (folder / "timeline.md").read_text().count("Skipped") == 1
 
 
 def test_review_rejects_ids_that_are_not_flagged(config, calls):
