@@ -11,6 +11,7 @@ dependencies = [
     "typer>=0.12",
     "pydantic>=2.7",
     "pyyaml>=6.0",
+    "playwright>=1.47",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +25,9 @@ resume_agent = "resume_agent.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+resume_agent = ["templates/*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
