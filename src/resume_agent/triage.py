@@ -25,6 +25,14 @@ JOB_BOARDS = (
     "wellfound.com",
     "builtin.com",
 )
+PATH_ATS_HOSTS = (
+    "greenhouse.io",
+    "ashbyhq.com",
+    "lever.co",
+    "workable.com",
+    "smartrecruiters.com",
+)
+SUBDOMAIN_ATS_HOST = ".myworkdayjobs.com"
 POSTED_AGO = re.compile(r"\bposted\s+(\d+)\+?\s+(hour|day|week|month)s?\s+ago", re.IGNORECASE)
 POSTED_RECENT = re.compile(r"\bposted\s+(today|yesterday|just now)", re.IGNORECASE)
 POSTED_ON = re.compile(r"\b(?i:posted)(?:\s+on)?:?\s+([A-Z][a-z]+ \d{1,2},? \d{4})")
@@ -61,6 +69,8 @@ class Triage:
     flags: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     fit_checked: bool = False
+    company: str = ""
+    role: str = ""
 
     @property
     def flagged(self) -> bool:
@@ -69,6 +79,9 @@ class Triage:
     def markdown(self) -> str:
         lines = [
             f"# Triage: {self.title}",
+            "",
+            f"Company: {self.company or 'unknown'}",
+            f"Role: {self.role or 'unknown'}",
             "",
             f"Result: **{'FLAGGED' if self.flagged else 'CLEAR'}**",
             "",
@@ -93,6 +106,8 @@ class Requirements:
     years_required: int | None
     required_skills: list[str]
     other_requirements: list[str]
+    company: str = ""
+    role: str = ""
 
 
 def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requirements:
@@ -103,7 +118,13 @@ def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requir
         years_required=int(years) if valid_years else None,
         required_skills=string_list(data.get("required_skills")),
         other_requirements=string_list(data.get("other_requirements")),
+        company=text_value(data.get("company")),
+        role=text_value(data.get("role")),
     )
+
+
+def text_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def string_list(value: object) -> list[str]:
@@ -135,8 +156,10 @@ def add_fit(
     triage: Triage, listing_text: str, ledger_path: Path, run: Callable[[str], str]
 ) -> Triage:
     try:
-        ledger = load_ledger(ledger_path)
-        return apply_fit(triage, extract_requirements(run, listing_text), ledger)
+        requirements = extract_requirements(run, listing_text)
+        triage.company = requirements.company or triage.company
+        triage.role = requirements.role or triage.role
+        return apply_fit(triage, requirements, load_ledger(ledger_path))
     except (LedgerError, LlmError, PromptError) as error:
         triage.notes.append(f"Fit check skipped: {error}")
         return triage
@@ -166,6 +189,22 @@ def job_board(source: str) -> str | None:
     return next(boards, None)
 
 
+def company_from_url(source: str) -> str:
+    if job_board(source):
+        return ""
+    parsed = urlparse(source)
+    host = parsed.hostname or ""
+    labels = host.removeprefix("www.").split(".")
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if any(host == ats or host.endswith(f".{ats}") for ats in PATH_ATS_HOSTS) and segments:
+        slug = segments[0]
+    elif host.endswith(SUBDOMAIN_ATS_HOST):
+        slug = labels[0]
+    else:
+        slug = labels[-2] if len(labels) > 1 else ""
+    return slug.replace("-", " ").replace("_", " ").title()
+
+
 def home_city(config: Config) -> str:
     return config.location.split(",")[0].strip()
 
@@ -173,7 +212,11 @@ def home_city(config: Config) -> str:
 def triage_listing(listing: Listing, config: Config, today: date | None = None) -> Triage:
     today = today or date.today()
     text = listing.text
-    result = Triage(title=listing.title)
+    result = Triage(
+        title=listing.title,
+        company=company_from_url(listing.source),
+        role=listing.title,
+    )
 
     age = posting_age(text, today)
     if age is not None and age > STALE_AFTER:
