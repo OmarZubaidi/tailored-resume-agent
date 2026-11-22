@@ -55,7 +55,26 @@ def test_render_command_on_baseline(config_data, write_config, data_root):
     assert result.exit_code == 0, result.output
     assert (baseline / "Jane-Doe-Resume.pdf").exists()
     assert (baseline / "Jane-Doe-Cover-Letter.pdf").exists()
-    assert "Overall: **PASS**" in (baseline / "ats-report.md").read_text()
+    report = (baseline / "ats-report.md").read_text()
+    assert "Overall: **PASS**" in report
+    assert "Keyword coverage" not in report
+
+
+@needs_chrome
+def test_render_reports_keyword_coverage_when_listing_present(config_data, write_config, tmp_path):
+    write_config(config_data)
+    (tmp_path / "resume.md").write_text(RESUME)
+    (tmp_path / "cover-letter.md").write_text(LETTER)
+    (tmp_path / "listing.md").write_text(
+        "Source: https://example.com/job\nTitle: Engineer\n\nTypeScript, Kubernetes, Lambda\n"
+    )
+
+    result = CliRunner().invoke(app, ["render", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    report = (tmp_path / "ats-report.md").read_text()
+    assert "| Keyword coverage vs listing | INFO | 67% of 3 listing skills" in report
+    assert "Missing: Kubernetes" in report
 
 
 @needs_chrome
