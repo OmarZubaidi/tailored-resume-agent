@@ -8,6 +8,7 @@ from resume_agent.config import Config
 from resume_agent.guards.rules import GuardError, excel_lock_file
 from resume_agent.tracker import (
     APPLICATIONS_SHEET,
+    INBOX,
     INBOX_SHEET,
     OVERVIEW_SHEET,
     Application,
@@ -175,11 +176,22 @@ def test_ignored_errors_go_before_later_elements():
     assert with_ignored_errors(xml).index("<ignoredErrors>") == xml.index("<tableParts")
 
 
-def test_inbox_offers_mode_and_baseline_choices(path, saved):
+def test_inbox_offers_mode_baseline_and_decision_choices(path, saved):
     inbox = load_workbook(path)[INBOX_SHEET]
 
     choices = {validation.formula1 for validation in inbox.data_validations.dataValidation}
-    assert choices == {'"upward,lateral"', '"general"'}
+    assert choices == {'"upward,lateral"', '"general"', '"proceed,drop"'}
+
+
+def test_inbox_without_decision_column_still_loads(path, saved):
+    workbook = load_workbook(path)
+    workbook[INBOX_SHEET].delete_cols(INBOX.columns.index("Decision") + 1)
+    workbook.save(path)
+
+    rows = load_tracker(path).inbox
+
+    assert all(row.decision == "" for row in rows)
+    assert [row.url for row in rows] == [row.url for row in saved.inbox]
 
 
 def test_overview_weeks_run_newest_first_from_first_applied_week(acme):

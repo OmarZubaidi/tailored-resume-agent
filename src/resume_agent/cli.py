@@ -11,8 +11,15 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.guards.rules import GuardError, ensure_excel_closed
-from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
+from resume_agent.guards.rules import GuardError, ensure_excel_closed, excel_lock_file
+from resume_agent.inbox import (
+    Decision,
+    InboxError,
+    InboxResult,
+    process_inbox,
+    review_rows,
+    sync_inbox,
+)
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.llm import run_prompt
 from resume_agent.pipeline import (
@@ -248,29 +255,53 @@ def echo_inbox_result(result: InboxResult) -> None:
     if result.flagged:
         lines = "\n".join(flagged_line(row) for row in result.flagged)
         typer.echo(f"Flagged, waiting for your review:\n{lines}")
-        typer.echo("Decide with: resume_agent review proceed|drop <ID>...")
+        typer.echo("Decide by typing proceed or drop in the Decision column, then save and close.")
     if result.failed:
         raise typer.Exit(1)
 
 
+def inbox_waiting(tracker: Tracker) -> bool:
+    return any(row.decision or (row.url and not row.status) for row in tracker.inbox)
+
+
 @app.command("sync")
 def sync() -> None:
-    """Act on stage dates typed in the workbook: timeline lines and file locks.
+    """Act on what was typed in the workbook.
 
-    Clearing a date undoes its effects. Safe to run while Excel is open.
+    Stage dates add timeline lines and lock files; clearing a date undoes that. Once Excel is
+    closed, new Inbox URLs are fetched, triaged and tailored, and Decision cells are applied.
     """
     config = load_config_or_exit()
+    path = workbook_path(config.data_root)
     try:
-        tracker = load_tracker(workbook_path(config.data_root))
-        result = sync_stages(tracker, config, today())
+        tracker = load_tracker(path)
+        stages = sync_stages(tracker, config, today())
     except (SyncError, TrackerError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
-    for event in result.events:
+    for event in stages.events:
         typer.echo(event)
-    for failure in result.failures:
+    for failure in stages.failures:
         typer.echo(failure, err=True)
-    if result.failures:
+
+    if excel_lock_file(path).exists():
+        if inbox_waiting(tracker):
+            typer.echo("Excel is open; the Inbox waits until it closes.")
+    elif inbox_waiting(tracker):
+        try:
+            result = sync_inbox(
+                tracker,
+                config,
+                llm_runner(config),
+                today(),
+                save=lambda: save_tracker(tracker, config),
+                report=typer.echo,
+            )
+        except (GuardError, TrackerError) as error:
+            typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
+            raise typer.Exit(1) from error
+        echo_inbox_result(result)
+    if stages.failures:
         raise typer.Exit(1)
 
 
