@@ -32,10 +32,13 @@ $voice
 2. State experience as "$years years". Never use another number of years.
 3. Use only facts from the tailored resume. Never add numbers, tools or outcomes it does not state.
 4. Reference something specific about the company from the listing.
-5. Professional register, with at most one or two touches of personality, like
+5. A register between professional and conversational: plain, warm, first person, contractions
+   allowed, no slang or chat shorthand. At most one or two touches of personality, like
    "integrating a fax (yes, that fax!) REST API".
 6. Write like a person, not a language model:
-   - Use plain apostrophes and a plain hyphen. Never use an en or em dash.
+   - Use normal capitalization: start every sentence with a capital letter and capitalize "I".
+   - Use plain apostrophes and a plain hyphen, and keep the apostrophe in every contraction.
+     Never use an en or em dash.
    - Never use these words: $banned_words.
    - Never use contrast framing such as "not just X, it's Y", "it's not X, it's Y" or
      "not only X, but Y".

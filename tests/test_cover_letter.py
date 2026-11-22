@@ -74,6 +74,13 @@ def test_years_in_words(months, words):
         ("I bring not only skill, but grit.", "uses contrast framing"),
         ("Built it fast — and well.", "uses an en or em dash"),
         ("I like [Company Name].", "leaves the placeholder [Company Name]"),
+        ("i built the fax api.", "starts a sentence in lowercase: 'i'"),
+        ("I built it. then I tested it.", "starts a sentence in lowercase: 'then'"),
+        ("Dear team,\n\nhappy to talk.", "starts a sentence in lowercase: 'happy'"),
+        ("Since then i have shipped it.", "writes 'I' in lowercase"),
+        ("Glad to help, i'm free Monday.", "writes 'I' in lowercase"),
+        ("I dont mind on-call.", "drops the apostrophe in 'dont'"),
+        ("Im happy to talk.", "drops the apostrophe in 'Im'"),
     ],
 )
 def test_style_problems(text, problem):
@@ -82,6 +89,12 @@ def test_style_problems(text, problem):
 
 def test_plain_writing_has_no_style_problems():
     assert style_problems("I'm not sure, but I built a fax (yes, that fax!) REST API.") == []
+
+
+def test_abbreviations_and_mixed_case_names_pass_the_casing_check():
+    text = "I used tools, e.g. pytest, i.e. the usual. It ships on iOS and eBay.\n\nBest,\nJane"
+
+    assert style_problems(text) == []
 
 
 def test_generated_letter(ledger):

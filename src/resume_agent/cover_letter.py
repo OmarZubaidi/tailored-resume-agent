@@ -35,6 +35,16 @@ BANNED_WORDS = (
     "seamlessly",
 )
 BANNED_WORD = re.compile(rf"\b({'|'.join(BANNED_WORDS)})\b", re.IGNORECASE)
+ABBREVIATION = re.compile(r"\b(?:e\.g|i\.e|etc|vs)\.", re.IGNORECASE)
+LOWERCASE_START = re.compile(r"(?:^|[.!?]\s+|\n\s*)([a-z][a-z0-9-]*)\b", re.MULTILINE)
+LOWERCASE_I = re.compile(r"(?<![\w.])i(?=[\s,;:!?']|$)")
+CONTRACTIONS_WITHOUT_APOSTROPHE = (
+    "dont cant wont isnt arent doesnt didnt wasnt werent hasnt havent couldnt shouldnt wouldnt "
+    "im ive youre theyre thats whats"
+).split()
+MISSING_APOSTROPHE = re.compile(
+    rf"\b({'|'.join(CONTRACTIONS_WITHOUT_APOSTROPHE)})\b", re.IGNORECASE
+)
 CONTRAST_FRAMING = re.compile(
     r"\bnot (?:just|only|merely|simply)\b[^.!?]*?[,;]\s*(?:but|it'?s|it is|they'?re|we'?re)\b"
     r"|\bit'?s not (?:about )?[^.!?,]+,\s*it'?s\b",
@@ -65,11 +75,23 @@ def letter_markdown(letter: CoverLetter) -> str:
     return f"{front}\n\n{body}\n"
 
 
+def casing_problems(text: str) -> list[str]:
+    plain = ABBREVIATION.sub("", text)
+    problems = [
+        f"starts a sentence in lowercase: {word!r}" for word in LOWERCASE_START.findall(plain)
+    ]
+    if LOWERCASE_I.search(plain):
+        problems.append("writes 'I' in lowercase")
+    problems += [f"drops the apostrophe in {word!r}" for word in MISSING_APOSTROPHE.findall(plain)]
+    return problems
+
+
 def style_problems(text: str) -> list[str]:
     problems = [f"uses the word {word!r}" for word in BANNED_WORD.findall(text)]
     problems += [f"uses contrast framing: {match!r}" for match in CONTRAST_FRAMING.findall(text)]
     if LONG_DASH.search(text):
         problems.append("uses an en or em dash")
+    problems += casing_problems(text)
     problems += [f"leaves the placeholder {item}" for item in open_placeholders(text.splitlines())]
     return problems
 
