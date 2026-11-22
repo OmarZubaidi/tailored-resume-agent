@@ -1,8 +1,11 @@
+import fcntl
 import json
 import os
+import re
 import subprocess
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -10,15 +13,20 @@ from pathlib import Path
 from resume_agent.application_folder import format_id
 from resume_agent.config import Config
 from resume_agent.data_root import STATE_DIR
-from resume_agent.gmail import Email, Mailbox
+from resume_agent.gmail import WHITESPACE, Email, Mailbox
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, text_value
 from resume_agent.stages import Ambiguous, StageError, find_application, pick_line, save_stage
 from resume_agent.tracker import Application, Stage, Tracker
 
 MAX_EMAIL_CHARACTERS = 8_000
 PENDING_FILE = Path(STATE_DIR, "pending-updates.json")
+PENDING_LOCK = Path(STATE_DIR, "pending-updates.lock")
 SCAN_STATE_FILE = Path(STATE_DIR, "gmail-scan.json")
+SCAN_LOCK = Path(STATE_DIR, "gmail-scan.lock")
 SCAN_QUERY = "in:inbox -category:promotions -category:social"
+FIRST_SCAN_DAYS = 30
+MAX_DISPLAY_CHARACTERS = 80
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 SCAN_OVERLAP = timedelta(days=1)
 MAX_SEEN_IDS = 1_000
 ROUNDS = (Stage.APPLIED, Stage.FIRST, Stage.SECOND, Stage.THIRD)
@@ -96,11 +104,18 @@ class PendingUpdate:
     @property
     def note(self) -> str:
         interview = f", interview {self.interview_date}" if self.interview_date else ""
-        return f'{self.kind.value} email "{self.subject}"{interview}'
+        return f'{self.kind.value} email "{display_text(self.subject)}"{interview}'
 
     @property
     def source(self) -> str:
-        return self.company or self.sender
+        return display_text(self.company or self.sender)
+
+
+def display_text(text: str) -> str:
+    cleaned = WHITESPACE.sub(" ", CONTROL_CHARACTERS.sub(" ", text)).strip()
+    if len(cleaned) <= MAX_DISPLAY_CHARACTERS:
+        return cleaned
+    return f"{cleaned[: MAX_DISPLAY_CHARACTERS - 3].rstrip()}..."
 
 
 @dataclass
@@ -144,22 +159,70 @@ def update_from_record(record: dict) -> PendingUpdate:
     )
 
 
+@contextmanager
+def file_lock(path: Path, wait: bool = True) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ScanError("Another Gmail scan is running.") from error
+        yield
+
+
+def read_queue(data_root: Path) -> tuple[list[PendingUpdate], int]:
+    path = data_root / PENDING_FILE
+    data = read_json(path) or {}
+    try:
+        updates = [update_from_record(record) for record in data.get("updates", [])]
+        next_number = int(data.get("next_number", 1))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ScanError(f"{path} has a malformed update: {error}") from error
+    return updates, max(next_number, *(update.number + 1 for update in updates), 1)
+
+
+def write_queue(data_root: Path, updates: list[PendingUpdate], next_number: int) -> None:
+    write_json(
+        data_root / PENDING_FILE,
+        {
+            "next_number": next_number,
+            "updates": [update_record(update) for update in updates],
+        },
+    )
+
+
 def load_pending(data_root: Path) -> list[PendingUpdate]:
-    data = read_json(data_root / PENDING_FILE) or {}
-    return [update_from_record(record) for record in data.get("updates", [])]
+    return read_queue(data_root)[0]
 
 
-def save_pending(data_root: Path, updates: list[PendingUpdate]) -> None:
-    write_json(data_root / PENDING_FILE, {"updates": [update_record(update) for update in updates]})
+def queue_update(data_root: Path, update: PendingUpdate) -> PendingUpdate:
+    with file_lock(data_root / PENDING_LOCK):
+        updates, next_number = read_queue(data_root)
+        numbered = replace(update, number=next_number)
+        write_queue(data_root, [*updates, numbered], next_number + 1)
+    return numbered
+
+
+def discard_pending(data_root: Path, numbers: list[int]) -> list[PendingUpdate]:
+    with file_lock(data_root / PENDING_LOCK):
+        updates, next_number = read_queue(data_root)
+        discarded = [pending_update(updates, number) for number in dict.fromkeys(numbers)]
+        kept = [update for update in updates if update not in discarded]
+        write_queue(data_root, kept, next_number)
+    return discarded
 
 
 def load_scan_state(data_root: Path) -> ScanState:
-    data = read_json(data_root / SCAN_STATE_FILE) or {}
+    path = data_root / SCAN_STATE_FILE
+    data = read_json(path) or {}
     last_scan = data.get("last_scan")
-    return ScanState(
-        last_scan=datetime.fromisoformat(last_scan) if last_scan else None,
-        seen=data.get("seen", []),
-    )
+    try:
+        return ScanState(
+            last_scan=datetime.fromisoformat(last_scan) if last_scan else None,
+            seen=list(data.get("seen", [])),
+        )
+    except (TypeError, ValueError) as error:
+        raise ScanError(f"{path} is malformed: {error}") from error
 
 
 def save_scan_state(data_root: Path, state: ScanState) -> None:
@@ -198,26 +261,17 @@ def match_application(
     return application.id, []
 
 
-def is_duplicate(application_id: int | None, kind: EmailKind, pending: list[PendingUpdate]) -> bool:
-    return application_id is not None and any(
-        update.application_id == application_id and update.kind == kind for update in pending
-    )
-
-
 def propose_update(
     email: Email,
     classification: Classification,
     tracker: Tracker,
     variants: dict[str, str],
-    pending: list[PendingUpdate],
 ) -> PendingUpdate | None:
     if classification.kind == EmailKind.OTHER:
         return None
     application_id, candidates = match_application(tracker, classification, variants)
-    if is_duplicate(application_id, classification.kind, pending):
-        return None
     return PendingUpdate(
-        number=max((update.number for update in pending), default=0) + 1,
+        number=0,
         message_id=email.id,
         received=email.received,
         sender=email.sender,
@@ -231,9 +285,21 @@ def propose_update(
     )
 
 
+def classify_or_skip(
+    run: Callable[[str], str],
+    email: Email,
+    report: Callable[[str], None],
+) -> Classification | None:
+    try:
+        return classify_email(run, email)
+    except PromptError as error:
+        report(f"Skipped {email.received} {display_text(email.subject)}: {error}")
+        return None
+
+
 def scan_query(last_scan: datetime | None) -> str:
     if not last_scan:
-        return SCAN_QUERY
+        return f"{SCAN_QUERY} newer_than:{FIRST_SCAN_DAYS}d"
     return f"{SCAN_QUERY} after:{int((last_scan - SCAN_OVERLAP).timestamp())}"
 
 
@@ -244,23 +310,23 @@ def scan_mailbox(
     run: Callable[[str], str],
     data_root: Path,
     now: datetime,
+    report: Callable[[str], None],
 ) -> list[PendingUpdate]:
-    state = load_scan_state(data_root)
-    pending = load_pending(data_root)
-    known = {*state.seen, *(update.message_id for update in pending)}
-    oldest_first = reversed(mailbox.message_ids(scan_query(state.last_scan)))
-    added = []
-    for message_id in [message_id for message_id in oldest_first if message_id not in known]:
-        email = mailbox.message(message_id)
-        update = propose_update(email, classify_email(run, email), tracker, variants, pending)
-        if update:
-            pending.append(update)
-            added.append(update)
-            save_pending(data_root, pending)
-        state.seen.append(message_id)
+    with file_lock(data_root / SCAN_LOCK, wait=False):
+        state = load_scan_state(data_root)
+        known = {*state.seen, *(update.message_id for update in load_pending(data_root))}
+        oldest_first = reversed(mailbox.message_ids(scan_query(state.last_scan)))
+        added = []
+        for message_id in [message_id for message_id in oldest_first if message_id not in known]:
+            email = mailbox.message(message_id)
+            classification = classify_or_skip(run, email, report)
+            update = classification and propose_update(email, classification, tracker, variants)
+            if update:
+                added.append(queue_update(data_root, update))
+            state.seen.append(message_id)
+            save_scan_state(data_root, state)
+        state.last_scan = now
         save_scan_state(data_root, state)
-    state.last_scan = now
-    save_scan_state(data_root, state)
     return added
 
 

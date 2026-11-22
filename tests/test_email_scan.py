@@ -9,16 +9,22 @@ from resume_agent import cli
 from resume_agent.cli import app
 from resume_agent.config import Config
 from resume_agent.email_scan import (
+    PENDING_FILE,
+    SCAN_LOCK,
     SCAN_QUERY,
     EmailKind,
     PendingUpdate,
+    ScanError,
     classify_email,
     describe_update,
+    discard_pending,
+    display_text,
+    file_lock,
     load_pending,
     notification,
     proposed_stage,
-    save_pending,
     scan_mailbox,
+    write_queue,
 )
 from resume_agent.gmail import Email, Mailbox
 from resume_agent.llm import LlmError
@@ -153,6 +159,8 @@ class Classifier:
         self.calls += 1
         if self.fail_on and self.fail_on in prompt:
             raise LlmError("usage limit reached")
+        if "garbled reply" in prompt:
+            return "I cannot help with that."
         return reply(**next(data for text, data in REPLIES.items() if text in prompt))
 
 
@@ -164,10 +172,13 @@ def mailbox(*bodies: str) -> Mailbox:
 NOW = datetime(2026, 11, 22, 12, 0)
 
 
+def scan(box: Mailbox, tracker: Tracker, classifier, data_root, reports: list | None = None):
+    report = reports.append if reports is not None else print
+    return scan_mailbox(box, tracker, {}, classifier, data_root, NOW, report)
+
+
 def test_scan_queues_matched_rejection(tracker, tmp_path):
-    added = scan_mailbox(
-        mailbox("We are pursuing other candidates"), tracker, {}, Classifier(), tmp_path, NOW
-    )
+    added = scan(mailbox("We are pursuing other candidates"), tracker, Classifier(), tmp_path)
 
     assert [(update.application_id, update.kind) for update in added] == [(1, EmailKind.REJECTION)]
     assert load_pending(tmp_path) == added
@@ -179,7 +190,7 @@ def test_scan_queues_matched_rejection(tracker, tmp_path):
 
 
 def test_ambiguous_match_lists_candidates(tracker, tmp_path):
-    [update] = scan_mailbox(mailbox("schedule a call"), tracker, {}, Classifier(), tmp_path, NOW)
+    [update] = scan(mailbox("schedule a call"), tracker, Classifier(), tmp_path)
 
     assert update.application_id is None
     assert update.candidates == [2, 3]
@@ -191,40 +202,87 @@ def test_other_emails_are_skipped_and_not_reread(tracker, tmp_path):
     classifier = Classifier()
     box = mailbox("we received your application")
 
-    assert scan_mailbox(box, tracker, {}, classifier, tmp_path, NOW) == []
-    assert scan_mailbox(box, tracker, {}, classifier, tmp_path, NOW) == []
+    assert scan(box, tracker, classifier, tmp_path) == []
+    assert scan(box, tracker, classifier, tmp_path) == []
     assert classifier.calls == 1
 
 
-def test_second_scan_asks_only_for_recent_mail(tracker, tmp_path):
+def test_first_scan_is_bounded_and_later_scans_ask_only_for_recent_mail(tracker, tmp_path):
     box = mailbox()
-    scan_mailbox(box, tracker, {}, Classifier(), tmp_path, NOW)
-    scan_mailbox(box, tracker, {}, Classifier(), tmp_path, NOW)
+    scan(box, tracker, Classifier(), tmp_path)
+    scan(box, tracker, Classifier(), tmp_path)
 
     queries = box._users.messages().queries
-    assert queries[0] == SCAN_QUERY
+    assert queries[0] == f"{SCAN_QUERY} newer_than:30d"
     assert queries[1] == f"{SCAN_QUERY} after:{int((NOW - timedelta(days=1)).timestamp())}"
 
 
-def test_same_update_for_an_application_is_queued_once(tracker, tmp_path):
+def test_every_update_email_is_queued(tracker, tmp_path):
     box = mailbox("pursuing other candidates", "Sorry, pursuing other candidates")
 
-    added = scan_mailbox(box, tracker, {}, Classifier(), tmp_path, NOW)
+    added = scan(box, tracker, Classifier(), tmp_path)
 
-    assert len(added) == 1
+    assert [update.number for update in added] == [1, 2]
 
 
 def test_scan_resumes_after_a_failure(tracker, tmp_path):
     box = mailbox("pursuing other candidates", "schedule a call")
 
     with pytest.raises(LlmError):
-        scan_mailbox(box, tracker, {}, Classifier(fail_on="schedule a call"), tmp_path, NOW)
+        scan(box, tracker, Classifier(fail_on="schedule a call"), tmp_path)
     classifier = Classifier()
-    added = scan_mailbox(box, tracker, {}, classifier, tmp_path, NOW)
+    added = scan(box, tracker, classifier, tmp_path)
 
     assert classifier.calls == 1
     assert [update.number for update in load_pending(tmp_path)] == [1, 2]
     assert [update.kind for update in added] == [EmailKind.INTERVIEW]
+
+
+def test_unclassifiable_email_is_skipped_once(tracker, tmp_path):
+    box = mailbox("garbled reply", "pursuing other candidates")
+    reports = []
+    classifier = Classifier()
+
+    added = scan(box, tracker, classifier, tmp_path, reports)
+    scan(box, tracker, classifier, tmp_path, reports)
+
+    assert [update.kind for update in added] == [EmailKind.REJECTION]
+    assert classifier.calls == 2
+    assert len(reports) == 1
+    assert reports[0].startswith("Skipped 2026-11-20 Your application: Expected JSON")
+
+
+def test_overlapping_scan_is_refused(tracker, tmp_path):
+    with file_lock(tmp_path / SCAN_LOCK):
+        with pytest.raises(ScanError, match="Another Gmail scan is running"):
+            scan(mailbox(), tracker, Classifier(), tmp_path)
+
+
+def test_queue_keeps_changes_made_during_a_scan(tracker, tmp_path):
+    box = mailbox("pursuing other candidates", "schedule a call")
+    classifier = Classifier()
+
+    def discard_first(prompt: str) -> str:
+        if "schedule a call" in prompt:
+            discard_pending(tmp_path, [1])
+        return classifier(prompt)
+
+    scan(box, tracker, discard_first, tmp_path)
+
+    assert [update.number for update in load_pending(tmp_path)] == [2]
+
+
+def test_numbers_are_not_reused(tracker, tmp_path):
+    scan(mailbox("pursuing other candidates"), tracker, Classifier(), tmp_path)
+    discard_pending(tmp_path, [1])
+    [update] = scan(mailbox("x", "schedule a call"), tracker, Classifier(), tmp_path)
+
+    assert update.number == 2
+
+
+def test_display_text_strips_control_characters_and_truncates():
+    assert display_text("Acme\x1b[31m\nHealth") == "Acme [31m Health"
+    assert display_text("A" * 100) == f"{'A' * 77}..."
 
 
 def test_interview_proposes_the_next_round():
@@ -296,12 +354,13 @@ def pending(number: int, kind: EmailKind, application_id=None, candidates=()) ->
 
 @pytest.fixture
 def queued(config) -> Config:
-    save_pending(
+    write_queue(
         config.data_root,
         [
             pending(1, EmailKind.REJECTION, application_id=1),
             pending(2, EmailKind.INTERVIEW, candidates=[2, 3]),
         ],
+        3,
     )
     return config
 
@@ -322,6 +381,17 @@ def test_updates_lists_pending_with_hint(queued):
     assert "1. 2026-11-20 Acme Health rejection → 00001" in result.output
     assert "2. 2026-11-20 Globex interview → pick one of 00002, 00003" in result.output
     assert "updates confirm <n>" in result.output
+
+
+def test_malformed_queue_is_reported(config):
+    path = config.data_root / PENDING_FILE
+    path.parent.mkdir()
+    path.write_text('{"updates": [{"number": 1}]}')
+
+    result = invoke()
+
+    assert result.exit_code == 1
+    assert "has a malformed update" in result.output
 
 
 def test_updates_with_nothing_pending(config):
@@ -357,7 +427,7 @@ def test_id_goes_with_one_number(queued):
 
 def test_already_recorded_stage_stays_pending(queued):
     invoke("confirm", "1")
-    save_pending(queued.data_root, [pending(3, EmailKind.REJECTION, application_id=1)])
+    write_queue(queued.data_root, [pending(3, EmailKind.REJECTION, application_id=1)], 4)
 
     result = invoke("confirm", "3")
 

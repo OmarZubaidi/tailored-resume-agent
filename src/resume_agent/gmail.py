@@ -203,7 +203,11 @@ class Mailbox:
 
     def message(self, message_id: str) -> Email:
         request = self._users.messages().get(userId="me", id=message_id, format="full")
-        return parse_message(self.execute(request))
+        message = self.execute(request)
+        try:
+            return parse_message(message)
+        except (KeyError, TypeError, ValueError) as error:
+            raise GmailError(f"Gmail message {message_id} is malformed: {error}") from error
 
 
 def gmail_service(credentials: Credentials):

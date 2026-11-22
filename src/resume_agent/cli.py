@@ -15,11 +15,11 @@ from resume_agent.email_scan import (
     ScanError,
     confirm_update,
     describe_update,
+    discard_pending,
     load_pending,
     notification,
     notify,
     pending_update,
-    save_pending,
     scan_mailbox,
 )
 from resume_agent.gmail import GmailError, open_mailbox
@@ -73,6 +73,12 @@ updates_app = typer.Typer(help="Review stage updates proposed by the Gmail scan.
 app.add_typer(updates_app, name="updates")
 HOOKS_PATH = ".githooks"
 ISO_DATE = "%Y-%m-%d"
+SCAN_ERRORS = (GmailError, LlmError, PromptError, ScanError, StageError, TrackerError)
+UPDATES_HINT = (
+    "Confirm with: resume_agent updates confirm <n>... (--id <ID> to pick the application)\n"
+    "Discard with: resume_agent updates reject <n>..."
+)
+UpdateNumbers = Annotated[list[int], typer.Argument(help="Numbers from `resume_agent updates`.")]
 
 
 @app.callback()
@@ -349,7 +355,8 @@ def gmail_login(
     typer.echo(f"Signed in to Gmail as {account}. The token is in the Keychain.")
 
 
-SCAN_ERRORS = (GmailError, LlmError, PromptError, ScanError, StageError, TrackerError)
+def echo_error(message: str) -> None:
+    typer.echo(message, err=True)
 
 
 @gmail_app.command("scan")
@@ -361,7 +368,9 @@ def gmail_scan() -> None:
         tracker = load_tracker(workbook_path(config.data_root))
         variants = load_variants(config.data_root)
         run = llm_runner(config)
-        added = scan_mailbox(mailbox, tracker, variants, run, config.data_root, datetime.now())
+        added = scan_mailbox(
+            mailbox, tracker, variants, run, config.data_root, datetime.now(), echo_error
+        )
     except SCAN_ERRORS as error:
         typer.echo(str(error), err=True)
         summary = str(error).partition("\n")[0]
@@ -371,13 +380,6 @@ def gmail_scan() -> None:
         typer.echo(describe_update(update, tracker))
     if added:
         notify(notification(added))
-
-
-UPDATES_HINT = (
-    "Confirm with: resume_agent updates confirm <n>... (--id <ID> to pick the application)\n"
-    "Discard with: resume_agent updates reject <n>..."
-)
-UpdateNumbers = Annotated[list[int], typer.Argument(help="Numbers from `resume_agent updates`.")]
 
 
 @updates_app.callback(invoke_without_command=True)
@@ -418,8 +420,7 @@ def updates_confirm(
         for number in dict.fromkeys(numbers):
             update = pending_update(pending, number)
             application, stage = confirm_update(update, tracker, config, application_id)
-            pending.remove(update)
-            save_pending(config.data_root, pending)
+            discard_pending(config.data_root, [number])
             typer.echo(f"{pick_line(application)}: {stage.value} {update.received}")
     except (GuardError, ScanError, StageError, TrackerError) as error:
         typer.echo(str(error), err=True)
@@ -431,9 +432,7 @@ def updates_reject(numbers: UpdateNumbers) -> None:
     """Discard proposed updates without changing the tracker."""
     config = load_config_or_exit()
     try:
-        pending = load_pending(config.data_root)
-        rejected = [pending_update(pending, number) for number in dict.fromkeys(numbers)]
-        save_pending(config.data_root, [update for update in pending if update not in rejected])
+        rejected = discard_pending(config.data_root, numbers)
     except ScanError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
