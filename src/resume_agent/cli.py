@@ -8,6 +8,7 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
+from resume_agent.guards.rules import GuardError
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.ledger import LEDGER_FILE, LedgerError
 from resume_agent.llm import LlmError, run_prompt
@@ -15,6 +16,7 @@ from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, 
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.tailor import TailorError
+from resume_agent.tracker import init_workbook
 from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
 from resume_agent.validation import resolve_listing
 
@@ -56,7 +58,12 @@ def init() -> None:
         raise typer.Exit(1)
 
     created = init_data_root(config.data_root)
-    for path in created:
+    try:
+        workbook = init_workbook(config.data_root)
+    except GuardError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    for path in [*created, *([workbook] if workbook else [])]:
         typer.echo(f"Created {path}")
     typer.echo(f"Data root ready: {config.data_root}")
 

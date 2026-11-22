@@ -3,10 +3,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 SF_DATALESS = 0x40000000
+BASELINES_DIR = "baselines"
+APPLICATIONS_DIR = "applications"
 DATA_DIRS = (
-    Path("baselines/general"),
+    Path(BASELINES_DIR, "general"),
     Path("style/samples"),
-    Path("applications"),
+    Path(APPLICATIONS_DIR),
     Path(".state"),
 )
 

@@ -18,6 +18,7 @@ from resume_agent.ats import (
 )
 from resume_agent.config import Config
 from resume_agent.cover_letter import write_cover_letter
+from resume_agent.data_root import BASELINES_DIR
 from resume_agent.documents import (
     DocumentError,
     open_placeholders,
@@ -68,7 +69,7 @@ def pdf_name(person: str, document: str) -> str:
 
 
 def baseline_dir(config: Config, baseline: str) -> Path:
-    return config.data_root / "baselines" / baseline
+    return config.data_root / BASELINES_DIR / baseline
 
 
 def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderResult:
