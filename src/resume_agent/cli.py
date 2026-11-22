@@ -34,6 +34,7 @@ from resume_agent.stages import (
     pick_line,
     save_stage,
 )
+from resume_agent.sync import SyncError, sync_stages
 from resume_agent.tracker import (
     InboxRow,
     Stage,
@@ -249,6 +250,27 @@ def echo_inbox_result(result: InboxResult) -> None:
         typer.echo(f"Flagged, waiting for your review:\n{lines}")
         typer.echo("Decide with: resume_agent review proceed|drop <ID>...")
     if result.failed:
+        raise typer.Exit(1)
+
+
+@app.command("sync")
+def sync() -> None:
+    """Act on stage dates typed in the workbook: timeline lines and file locks.
+
+    Clearing a date undoes its effects. Safe to run while Excel is open.
+    """
+    config = load_config_or_exit()
+    try:
+        tracker = load_tracker(workbook_path(config.data_root))
+        result = sync_stages(tracker, config, today())
+    except (SyncError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    for event in result.events:
+        typer.echo(event)
+    for failure in result.failures:
+        typer.echo(failure, err=True)
+    if result.failures:
         raise typer.Exit(1)
 
 

@@ -55,3 +55,28 @@ def add_timeline_event(folder: Path, day: date, event: str) -> None:
         timeline.write_text(TIMELINE_HEADING)
     with timeline.open("a") as file:
         file.write(f"- {day.isoformat()} {event}\n")
+
+
+def event_line(day: date, event: str) -> re.Pattern[str]:
+    return re.compile(rf"^- {day.isoformat()} {re.escape(event)}(:.*)?$")
+
+
+def has_timeline_event(folder: Path, day: date, event: str) -> bool:
+    timeline = folder / TIMELINE_FILE
+    if not timeline.exists():
+        return False
+    pattern = event_line(day, event)
+    return any(pattern.match(line) for line in timeline.read_text().splitlines())
+
+
+def remove_timeline_event(folder: Path, day: date, event: str) -> None:
+    timeline = folder / TIMELINE_FILE
+    if not timeline.exists():
+        return
+    pattern = event_line(day, event)
+    kept = [
+        line
+        for line in timeline.read_text().splitlines(keepends=True)
+        if not pattern.match(line.rstrip("\n"))
+    ]
+    timeline.write_text("".join(kept))
