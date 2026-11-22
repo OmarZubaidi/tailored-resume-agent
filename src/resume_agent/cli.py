@@ -9,9 +9,11 @@ from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
+from resume_agent.ledger import LEDGER_FILE
+from resume_agent.llm import run_prompt
 from resume_agent.pipeline import baseline_dir, render_folder
 from resume_agent.render import RenderError
-from resume_agent.triage import TRIAGE_MD, triage_listing
+from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
 from resume_agent.validation import resolve_listing
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
@@ -90,6 +92,9 @@ def fetch(
     out_dir: Annotated[Path, typer.Argument(help="Folder for listing.pdf, listing.md, triage.md.")],
     url: Annotated[str | None, typer.Option(help="Job listing URL.")] = None,
     pdf: Annotated[Path | None, typer.Option(help="A listing you printed to PDF.")] = None,
+    baseline: Annotated[
+        str | None, typer.Option(help="Baseline whose skills ledger the fit check uses.")
+    ] = None,
 ) -> None:
     """Save a job listing, validate it and triage it."""
     if (url is None) == (pdf is None):
@@ -104,6 +109,8 @@ def fetch(
         raise typer.Exit(1) from error
 
     triage = triage_listing(listing, config)
+    ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
+    add_fit(triage, listing.text, ledger_path, lambda prompt: run_prompt(config, prompt))
     (out_dir / TRIAGE_MD).write_text(triage.markdown())
     typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
     typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")

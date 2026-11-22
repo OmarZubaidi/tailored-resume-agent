@@ -1,12 +1,18 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlparse
 
 from resume_agent.config import Config
 from resume_agent.job_listing import Listing
+from resume_agent.ledger import Ledger, LedgerError, load_ledger, whole_years
+from resume_agent.llm import LlmError
+from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
 
 TRIAGE_MD = "triage.md"
+MAX_MISSING_SKILLS = 2
 STALE_AFTER = timedelta(hours=72)
 JOB_BOARDS = (
     "linkedin.com",
@@ -54,6 +60,7 @@ class Triage:
     title: str
     flags: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    fit_checked: bool = False
 
     @property
     def flagged(self) -> bool:
@@ -71,11 +78,68 @@ class Triage:
             "## Notes",
             *(f"- {note}" for note in self.notes or ["None"]),
             "",
-            "## Pending",
-            "- Years of experience and skills fit against the skills ledger.",
-            "",
         ]
+        if not self.fit_checked:
+            lines += [
+                "## Pending",
+                "- Years of experience and skills fit against the skills ledger.",
+                "",
+            ]
         return "\n".join(lines)
+
+
+@dataclass
+class Requirements:
+    years_required: int | None
+    required_skills: list[str]
+    other_requirements: list[str]
+
+
+def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requirements:
+    data = parse_json_reply(run(render_prompt("triage-fit", listing=listing_text)))
+    years = data.get("years_required")
+    valid_years = isinstance(years, int | float) and not isinstance(years, bool)
+    return Requirements(
+        years_required=int(years) if valid_years else None,
+        required_skills=string_list(data.get("required_skills")),
+        other_requirements=string_list(data.get("other_requirements")),
+    )
+
+
+def string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return []
+
+
+def apply_fit(triage: Triage, requirements: Requirements, ledger: Ledger) -> Triage:
+    experience = whole_years(ledger.experience_months())
+    if requirements.years_required and requirements.years_required > experience:
+        triage.flags.append(
+            f"Years: the listing asks for {requirements.years_required}, "
+            f"the ledger shows {experience}."
+        )
+
+    missing = [skill for skill in requirements.required_skills if not ledger.knows(skill)]
+    if missing:
+        message = f"{len(missing)} required skills not in the ledger: {', '.join(missing)}"
+        (triage.flags if len(missing) > MAX_MISSING_SKILLS else triage.notes).append(message)
+    triage.notes.extend(f"Requirement: {item}" for item in requirements.other_requirements)
+    triage.fit_checked = True
+    return triage
+
+
+def add_fit(
+    triage: Triage, listing_text: str, ledger_path: Path, run: Callable[[str], str]
+) -> Triage:
+    try:
+        ledger = load_ledger(ledger_path)
+        return apply_fit(triage, extract_requirements(run, listing_text), ledger)
+    except (LedgerError, LlmError, PromptError) as error:
+        triage.notes.append(f"Fit check skipped: {error}")
+        return triage
 
 
 def sentences(text: str) -> list[str]:

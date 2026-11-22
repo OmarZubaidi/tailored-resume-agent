@@ -1,10 +1,20 @@
+import json
 from datetime import date, timedelta
 
 import pytest
 
 from resume_agent.config import Config
 from resume_agent.job_listing import Listing
-from resume_agent.triage import job_board, posting_age, sentences, triage_listing
+from resume_agent.llm import LlmError
+from resume_agent.triage import (
+    Requirements,
+    add_fit,
+    extract_requirements,
+    job_board,
+    posting_age,
+    sentences,
+    triage_listing,
+)
 
 TODAY = date(2026, 11, 21)
 
@@ -125,6 +135,110 @@ def test_no_clearance_required_is_not_flagged(config):
     result = triage_listing(listing("No security clearance required. Remote."), config, TODAY)
 
     assert not result.flagged
+
+
+LEDGER_YAML = """
+roles:
+  Acme:
+    from: 05/2021
+    to: 11/2026
+skills:
+  TypeScript:
+    - role: Acme
+  React:
+    - role: Acme
+"""
+
+
+@pytest.fixture
+def ledger_path(tmp_path):
+    path = tmp_path / "skills-ledger.yaml"
+    path.write_text(LEDGER_YAML)
+    return path
+
+
+def fit_reply(years, skills, other=()):
+    payload = {
+        "years_required": years,
+        "required_skills": list(skills),
+        "other_requirements": list(other),
+    }
+    return lambda _: f"```json\n{json.dumps(payload)}\n```"
+
+
+def test_extract_requirements():
+    requirements = extract_requirements(fit_reply(3, ["Go"], ["BS in CS"]), "LISTING")
+
+    assert requirements == Requirements(3, ["Go"], ["BS in CS"])
+
+
+def test_malformed_requirements_are_tolerated():
+    reply = '{"years_required": true, "required_skills": "Go", "other_requirements": 3}'
+
+    assert extract_requirements(lambda _: reply, "LISTING") == Requirements(None, ["Go"], [])
+
+
+def test_fit_within_ledger_adds_no_flags(config, ledger_path):
+    result = triage_listing(listing("Remote."), config, TODAY)
+
+    add_fit(result, "LISTING", ledger_path, fit_reply(3, ["TypeScript", "React"]))
+
+    assert not result.flagged
+    assert result.fit_checked
+    assert "## Pending" not in result.markdown()
+
+
+def test_too_many_years_is_flagged(config, ledger_path):
+    result = add_fit(
+        triage_listing(listing("Remote."), config, TODAY), "L", ledger_path, fit_reply(8, [])
+    )
+
+    assert result.flags == ["Years: the listing asks for 8, the ledger shows 5."]
+
+
+def test_two_missing_skills_is_a_note_three_is_a_flag(config, ledger_path):
+    two = add_fit(
+        triage_listing(listing("Remote."), config, TODAY),
+        "L",
+        ledger_path,
+        fit_reply(None, ["TypeScript", "Go", "Rust"], ["BS in CS"]),
+    )
+    three = add_fit(
+        triage_listing(listing("Remote."), config, TODAY),
+        "L",
+        ledger_path,
+        fit_reply(None, ["Go", "Rust", "Kotlin"]),
+    )
+
+    assert not two.flagged
+    assert two.notes == [
+        "2 required skills not in the ledger: Go, Rust",
+        "Requirement: BS in CS",
+    ]
+    assert three.flags == ["3 required skills not in the ledger: Go, Rust, Kotlin"]
+
+
+def test_fit_skipped_without_ledger(config, tmp_path):
+    def fail_run(_):
+        raise AssertionError("LLM should not run")
+
+    result = add_fit(
+        triage_listing(listing("Remote."), config, TODAY), "L", tmp_path / "none.yaml", fail_run
+    )
+
+    assert result.notes[0].startswith("Fit check skipped: Skills ledger not found")
+    assert "## Pending" in result.markdown()
+
+
+def test_fit_skipped_when_llm_fails(config, ledger_path):
+    def broken_run(_):
+        raise LlmError("usage limit reached")
+
+    triage = triage_listing(listing("Remote."), config, TODAY)
+
+    result = add_fit(triage, "L", ledger_path, broken_run)
+
+    assert result.notes == ["Fit check skipped: usage limit reached"]
 
 
 def test_work_authorization_boilerplate_is_one_note(config):

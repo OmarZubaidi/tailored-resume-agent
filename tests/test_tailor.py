@@ -12,7 +12,6 @@ from resume_agent.tailor import (
     diff_markdown,
     ledger_summary,
     numbers,
-    skill_known,
 )
 
 CURRENT = "Software Engineer @ Acme Health, 01/2023 - present"
@@ -141,10 +140,12 @@ def test_numbers_ignore_following_words_and_periods(text, expected):
         ("AWS", True),
         ("Java", False),
         ("Kubernetes", False),
+        ("TypeScript Generics", False),
+        ("AWS Lambda", True),
     ],
 )
-def test_skill_known(ledger, term, known):
-    assert skill_known(term, ledger) is known
+def test_ledger_knows(ledger, term, known):
+    assert ledger.knows(term) is known
 
 
 def test_valid_plan_builds_resume(ledger, bank):

@@ -84,14 +84,6 @@ def numbers(text: str) -> set[str]:
     return {match.replace(" ", "").replace(",", "").lower() for match in NUMBER.findall(text)}
 
 
-def skill_known(term: str, ledger: Ledger) -> bool:
-    pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
-    return any(
-        pattern.search(name) or re.search(rf"(?<!\w){re.escape(name)}(?!\w)", term, re.I)
-        for name in ledger.skills
-    )
-
-
 def proficiency_flags(label: str, text: str) -> list[str]:
     return [f"{label}: {match.group(0)!r} in {text!r}" for match in PROFICIENCY.finditer(text)]
 
@@ -169,7 +161,7 @@ def apply_plan(plan: dict, baseline: Resume, bank: list[BankBullet], ledger: Led
         f"Skill {term!r} is not in the skills ledger"
         for row in skills
         for term in skill_row_terms(row)
-        if not skill_known(term, ledger)
+        if not ledger.knows(term)
     ]
 
     if problems:

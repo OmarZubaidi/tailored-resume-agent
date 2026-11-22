@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -49,6 +50,13 @@ class Ledger:
 
     def experience_months(self) -> int:
         return merged_months(list(self.roles.values()))
+
+    def knows(self, term: str) -> bool:
+        return any(whole_word_in(term, name) for name in self.skills)
+
+
+def whole_word_in(needle: str, haystack: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack, re.IGNORECASE) is not None
 
 
 def merged_months(periods: list[Period]) -> int:
