@@ -6,7 +6,9 @@ import yaml
 
 FRONT_MATTER_DELIMITER = "---"
 MONTH_YEAR = r"(0[1-9]|1[0-2])/(\d{4})"
-DATE_RANGE = re.compile(rf"\b{MONTH_YEAR} - (?:{MONTH_YEAR}|present)\b")
+PRESENT = "present"
+DATE_RANGE = re.compile(rf"\b{MONTH_YEAR} - (?:{MONTH_YEAR}|{PRESENT})\b")
+WHOLE_MONTH_YEAR = re.compile(rf"^{MONTH_YEAR}$")
 ANY_MONTH_YEAR = re.compile(r"\b\d{1,2}/\d{4}\b")
 FORBIDDEN_DASHES = ("–", "—")
 
@@ -127,6 +129,16 @@ def parse_cover_letter(text: str) -> CoverLetter:
     )
 
 
+def parse_month(text: str, today: date | None = None) -> date:
+    value = str(text).strip()
+    if value == PRESENT:
+        return (today or date.today()).replace(day=1)
+    match = WHOLE_MONTH_YEAR.match(value)
+    if not match:
+        raise DocumentError(f"Expected MM/YYYY or {PRESENT!r}, got {value!r}")
+    return date(int(match.group(2)), int(match.group(1)), 1)
+
+
 def date_problems(lines: list[str], today: date | None = None) -> list[str]:
     today = today or date.today()
     problems = []
@@ -141,8 +153,8 @@ def date_problems(lines: list[str], today: date | None = None) -> list[str]:
                 problems.append(f"date not in MM/YYYY - MM/YYYY form: {match.group(0)!r}")
 
         for r in ranges:
-            start = date(int(r.group(2)), int(r.group(1)), 1)
-            end = date(int(r.group(4)), int(r.group(3)), 1) if r.group(3) else today
+            start = parse_month(f"{r.group(1)}/{r.group(2)}")
+            end = parse_month(f"{r.group(3)}/{r.group(4)}") if r.group(3) else today
             if start > end:
                 problems.append(f"range ends before it starts: {r.group(0)!r}")
     return problems
