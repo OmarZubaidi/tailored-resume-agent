@@ -85,6 +85,19 @@ def test_report_markdown():
     assert "| B | FAIL | why |" in report
 
 
+def test_info_checks_warn_without_failing_the_report():
+    report = report_markdown(
+        "resume",
+        [
+            Check("A", True),
+            Check("Coverage", False, "90%", info=True),
+        ],
+    )
+
+    assert "Overall: **PASS**" in report
+    assert "| Coverage | WARN | 90% |" in report
+
+
 @needs_chrome
 def test_rendered_resume_passes_every_check(config, tmp_path):
     resume = parse_resume(RESUME)

@@ -23,6 +23,13 @@ class Check:
     rule: str
     passed: bool
     detail: str = ""
+    info: bool = False
+
+    @property
+    def result(self) -> str:
+        if self.info:
+            return "INFO" if self.passed else "WARN"
+        return "PASS" if self.passed else "FAIL"
 
 
 def resume_expected_lines(resume: Resume, config: Config) -> list[str]:
@@ -110,12 +117,13 @@ def check_pdf(
     return checks
 
 
+def all_passed(checks: list[Check]) -> bool:
+    return all(check.passed for check in checks if not check.info)
+
+
 def report_markdown(title: str, checks: list[Check]) -> str:
-    rows = [
-        f"| {check.rule} | {'PASS' if check.passed else 'FAIL'} | {check.detail} |"
-        for check in checks
-    ]
-    verdict = "PASS" if all(check.passed for check in checks) else "FAIL"
+    rows = [f"| {check.rule} | {check.result} | {check.detail} |" for check in checks]
+    verdict = "PASS" if all_passed(checks) else "FAIL"
     return "\n".join(
         [
             f"# ATS report: {title}",

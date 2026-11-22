@@ -5,6 +5,7 @@ from pathlib import Path
 from resume_agent.ats import (
     REQUIRED_RESUME_HEADINGS,
     Check,
+    all_passed,
     check_pdf,
     cover_letter_expected_lines,
     report_markdown,
@@ -12,6 +13,8 @@ from resume_agent.ats import (
 )
 from resume_agent.config import Config
 from resume_agent.documents import parse_cover_letter, parse_resume
+from resume_agent.job_listing import LISTING_MD, read_listing
+from resume_agent.keywords import coverage_detail, keyword_coverage
 from resume_agent.render import cover_letter_html, render_pdf, resume_html
 
 RESUME_SOURCE = "resume.md"
@@ -49,11 +52,22 @@ def render_folder(folder: Path, config: Config) -> RenderResult:
     resume_checks: list[Check] = check_pdf(
         resume_pdf, resume_expected_lines(resume, config), config, REQUIRED_RESUME_HEADINGS
     )
+    listing_md = folder / LISTING_MD
+    if listing_md.exists():
+        coverage = keyword_coverage(read_listing(listing_md).text, resume, config)
+        resume_checks.append(
+            Check(
+                "Keyword coverage vs listing",
+                not coverage.stuffed,
+                coverage_detail(coverage),
+                info=True,
+            )
+        )
     letter_checks = check_pdf(letter_pdf, cover_letter_expected_lines(letter, config), config)
     report.write_text(
         report_markdown(resume_pdf.name, resume_checks)
         + "\n"
         + report_markdown(letter_pdf.name, letter_checks)
     )
-    passed = all(check.passed for check in resume_checks + letter_checks)
+    passed = all_passed(resume_checks + letter_checks)
     return RenderResult(resume_pdf, letter_pdf, report, passed)
