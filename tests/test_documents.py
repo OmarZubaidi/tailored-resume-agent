@@ -5,6 +5,7 @@ import pytest
 from resume_agent.documents import (
     DocumentError,
     date_problems,
+    open_placeholders,
     parse_cover_letter,
     parse_resume,
 )
@@ -111,6 +112,12 @@ def test_cover_letter_title_from_front_matter():
 def test_cover_letter_without_closing_is_rejected():
     with pytest.raises(DocumentError, match="closing"):
         parse_cover_letter("Only one paragraph.\n")
+
+
+def test_open_placeholders():
+    lines = ["Dear [Hiring Manager's Name],", "Built (fast) things.", "I like [Company Name]."]
+
+    assert open_placeholders(lines) == ["[Hiring Manager's Name]", "[Company Name]"]
 
 
 def test_valid_dates_have_no_problems():

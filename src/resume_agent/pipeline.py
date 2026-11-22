@@ -12,7 +12,12 @@ from resume_agent.ats import (
     resume_expected_lines,
 )
 from resume_agent.config import Config
-from resume_agent.documents import parse_cover_letter, parse_resume
+from resume_agent.documents import (
+    DocumentError,
+    open_placeholders,
+    parse_cover_letter,
+    parse_resume,
+)
 from resume_agent.job_listing import LISTING_MD, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage
 from resume_agent.render import cover_letter_html, render_pdf, resume_html
@@ -38,11 +43,17 @@ def baseline_dir(config: Config, baseline: str) -> Path:
     return config.data_root / "baselines" / baseline
 
 
-def render_folder(folder: Path, config: Config) -> RenderResult:
+def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderResult:
     report = folder / ATS_REPORT
     report.unlink(missing_ok=True)
     resume = parse_resume((folder / RESUME_SOURCE).read_text())
     letter = parse_cover_letter((folder / COVER_LETTER_SOURCE).read_text())
+    placeholders = open_placeholders(resume.text_lines() + letter.text_lines())
+    if placeholders and not draft:
+        raise DocumentError(
+            f"Fill these placeholders before rendering: {', '.join(placeholders)}. "
+            "Use --draft to render a template anyway."
+        )
     resume_pdf = folder / pdf_name(config.name, "Resume")
     letter_pdf = folder / pdf_name(config.name, "Cover-Letter")
 

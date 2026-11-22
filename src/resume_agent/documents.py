@@ -9,6 +9,7 @@ MONTH_YEAR = r"(0[1-9]|1[0-2])/(\d{4})"
 PRESENT = "present"
 DATE_RANGE = re.compile(rf"\b{MONTH_YEAR} - (?:{MONTH_YEAR}|{PRESENT})\b")
 WHOLE_MONTH_YEAR = re.compile(rf"^{MONTH_YEAR}$")
+PLACEHOLDER = re.compile(r"\[[^\]\n]+\]")
 ANY_MONTH_YEAR = re.compile(r"\b\d{1,2}/\d{4}\b")
 FORBIDDEN_DASHES = ("–", "—")
 
@@ -127,6 +128,10 @@ def parse_cover_letter(text: str) -> CoverLetter:
         paragraphs=paragraphs[:-1],
         closing=paragraphs[-1],
     )
+
+
+def open_placeholders(lines: list[str]) -> list[str]:
+    return [match for line in lines for match in PLACEHOLDER.findall(line)]
 
 
 def parse_month(text: str, today: date | None = None) -> date:

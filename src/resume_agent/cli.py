@@ -65,6 +65,7 @@ def render(
     baseline: Annotated[
         str | None, typer.Option(help="Baseline name; defaults to default_baseline.")
     ] = None,
+    draft: Annotated[bool, typer.Option(help="Render even with open [placeholders].")] = False,
 ) -> None:
     """Render resume and cover letter PDFs and write the ATS report."""
     if folder and baseline:
@@ -73,7 +74,7 @@ def render(
     config = load_config_or_exit()
     source = folder or baseline_dir(config, baseline or config.default_baseline)
     try:
-        result = render_folder(source, config)
+        result = render_folder(source, config, draft=draft)
     except (BrowserError, DocumentError, RenderError, FileNotFoundError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error

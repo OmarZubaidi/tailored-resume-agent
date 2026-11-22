@@ -104,6 +104,28 @@ def test_render_command_missing_sources_clears_old_report(config_data, write_con
     assert not (tmp_path / "ats-report.md").exists()
 
 
+def test_render_blocks_open_placeholders(config_data, write_config, tmp_path):
+    write_config(config_data)
+    (tmp_path / "resume.md").write_text(RESUME)
+    (tmp_path / "cover-letter.md").write_text("Dear [Hiring Manager],\n\nHi.\n\nBest,\n")
+
+    result = CliRunner().invoke(app, ["render", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "Fill these placeholders before rendering: [Hiring Manager]" in result.output
+
+
+@needs_chrome
+def test_render_draft_allows_placeholders(config_data, write_config, tmp_path):
+    write_config(config_data)
+    (tmp_path / "resume.md").write_text(RESUME)
+    (tmp_path / "cover-letter.md").write_text("Dear [Hiring Manager],\n\nHi.\n\nBest,\n")
+
+    result = CliRunner().invoke(app, ["render", str(tmp_path), "--draft"])
+
+    assert result.exit_code == 0, result.output
+
+
 def test_render_command_rejects_folder_and_baseline(config_data, write_config, tmp_path):
     write_config(config_data)
 
