@@ -9,10 +9,12 @@ from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.ledger import LEDGER_FILE
-from resume_agent.llm import run_prompt
-from resume_agent.pipeline import baseline_dir, render_folder
+from resume_agent.ledger import LEDGER_FILE, LedgerError
+from resume_agent.llm import LlmError, run_prompt
+from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, tailor_folder
+from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
+from resume_agent.tailor import TailorError
 from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
 from resume_agent.validation import resolve_listing
 
@@ -114,6 +116,43 @@ def fetch(
     (out_dir / TRIAGE_MD).write_text(triage.markdown())
     typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
     typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")
+
+
+@app.command("tailor")
+def tailor(
+    folder: Annotated[Path, typer.Argument(help="Folder holding listing.md from fetch.")],
+    baseline: Annotated[
+        str | None, typer.Option(help="Baseline name; defaults to default_baseline.")
+    ] = None,
+    mode: Annotated[
+        Mode | None, typer.Option(help="upward or lateral; detected from the listing if unset.")
+    ] = None,
+) -> None:
+    """Tailor the resume and cover letter to a listing, then render them."""
+    config = load_config_or_exit()
+    try:
+        result = tailor_folder(
+            folder, config, lambda prompt: run_prompt(config, prompt), baseline, mode
+        )
+    except (
+        BrowserError,
+        DocumentError,
+        FileNotFoundError,
+        LedgerError,
+        LlmError,
+        PromptError,
+        RenderError,
+        TailorError,
+    ) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Tailored ({result.mode.value}): {result.folder / DIFF_FILE}")
+    for flag in result.flags:
+        typer.echo(f"  Review: {flag}")
+    typer.echo(f"ATS {'PASS' if result.render.passed else 'FAIL'}: {result.render.report}")
+    if not result.render.passed:
+        raise typer.Exit(1)
 
 
 @dev_app.command("install-hooks")

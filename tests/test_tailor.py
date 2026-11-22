@@ -10,6 +10,7 @@ from resume_agent.tailor import (
     bank_markdown,
     build_bank,
     diff_markdown,
+    drop_lowest_bullet,
     ledger_summary,
     numbers,
 )
@@ -290,6 +291,40 @@ def test_years_and_proficiency_are_flagged(ledger, bank):
         "Headline: 'Expert' in 'Expert TypeScript Engineer | 5+ years'",
         "Headline: '5+ years' in 'Expert TypeScript Engineer | 5+ years'",
     ]
+
+
+def test_drop_lowest_bullet_trims_the_longest_role_to_two(ledger, bank):
+    three = plan(
+        roles=[
+            {
+                "heading": CURRENT,
+                "bullets": [
+                    {
+                        "source": "B3",
+                        "text": "Built 100+ AWS Lambda functions; traffic grew 43x.",
+                    },
+                    {
+                        "source": "B1",
+                        "text": "Built dozens of AWS Lambda functions serving 1.3M requests a day.",
+                    },
+                    {
+                        "source": "B2",
+                        "text": "Wrote Vitest tests.",
+                    },
+                ],
+            },
+        ]
+    )
+    tailored = apply_plan(three, BASELINE, bank, ledger)
+
+    first = drop_lowest_bullet(tailored)
+    second = drop_lowest_bullet(tailored)
+
+    assert first.source.id == "B2"
+    assert second is None
+    assert len(tailored.resume.sections[0].roles[0].bullets) == 2
+    assert tailored.flags == ["Dropped to fit one page: B2"]
+    assert "- Not used: B2" in diff_markdown(BASELINE, tailored, bank)
 
 
 def test_diff_shows_every_change(ledger, bank):

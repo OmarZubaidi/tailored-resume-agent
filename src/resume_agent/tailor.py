@@ -7,6 +7,7 @@ from resume_agent.ledger import Ledger
 
 BANK_FILE = "bullet-bank.md"
 EXPERIENCE_SECTION = "Experience"
+MIN_BULLETS_PER_ROLE = 2
 NUMBER = re.compile(r"\d(?:[\d,.]*\d)?(?:\s?[%+]|[xKkMm](?![A-Za-z]))?")
 PROFICIENCY = re.compile(
     r"\b(\d+\+?\s*(?:years?|yrs?)|expert|proficient|proficiency|advanced|mastery|seasoned|"
@@ -179,6 +180,22 @@ def apply_plan(plan: dict, baseline: Resume, bank: list[BankBullet], ledger: Led
         bullets=chosen,
         flags=flags,
     )
+
+
+def drop_lowest_bullet(tailored: Tailored) -> ChosenBullet | None:
+    roles = [r for r in experience_roles(tailored.resume) if len(r.bullets) > MIN_BULLETS_PER_ROLE]
+    if not roles:
+        return None
+    role = max(roles, key=lambda item: len(item.bullets))
+    text = role.bullets.pop()
+    dropped = next(
+        bullet
+        for bullet in reversed(tailored.bullets)
+        if bullet.heading == role.title and bullet.text == text
+    )
+    tailored.bullets.remove(dropped)
+    tailored.flags.append(f"Dropped to fit one page: {dropped.source.id}")
+    return dropped
 
 
 def diff_markdown(baseline: Resume, tailored: Tailored, bank: list[BankBullet]) -> str:
