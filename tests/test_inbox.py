@@ -167,6 +167,22 @@ def test_failed_tailor_resumes_without_refetching(config, calls, monkeypatch):
     assert [app.id for app in tracker.applications] == [1]
 
 
+def test_listing_that_failed_validation_is_refetched(config, calls, monkeypatch):
+    def login_wall(raw, out_dir):
+        raise ListingError("Looks like a login page")
+
+    monkeypatch.setattr(inbox, "resolve_listing", login_wall)
+    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL)])
+    run(tracker, config)
+    assert tracker.inbox[0].reason == "Looks like a login page"
+
+    monkeypatch.setattr(inbox, "resolve_listing", lambda raw, out_dir: (raw, None, False))
+    run(tracker, config)
+
+    assert calls["fetch"] == [CLEAR_URL, CLEAR_URL]
+    assert [app.id for app in tracker.applications] == [1]
+
+
 def test_bad_mode_and_baseline_fail_the_row(config, calls):
     tracker = Tracker(
         inbox=[

@@ -1,3 +1,4 @@
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -11,17 +12,10 @@ from resume_agent.application_folder import (
     move_folder,
     next_id,
 )
-from resume_agent.browser import BrowserError
 from resume_agent.config import Config
 from resume_agent.data_root import APPLICATIONS_DIR
-from resume_agent.documents import DocumentError
-from resume_agent.job_listing import LISTING_MD, ListingError, fetch_listing, read_listing
-from resume_agent.ledger import LedgerError
-from resume_agent.llm import LlmError
-from resume_agent.pipeline import Mode, baseline_dir, tailor_folder, triage_folder
-from resume_agent.prompts import PromptError
-from resume_agent.render import RenderError
-from resume_agent.tailor import TailorError
+from resume_agent.job_listing import ListingError, fetch_listing
+from resume_agent.pipeline import TAILOR_ERRORS, Mode, baseline_dir, tailor_folder, triage_folder
 from resume_agent.tracker import MODES, Application, InboxRow, Stage, Tracker
 from resume_agent.validation import resolve_listing
 
@@ -40,18 +34,7 @@ class Decision(StrEnum):
     DROP = "drop"
 
 
-ROW_ERRORS = (
-    BrowserError,
-    DocumentError,
-    FileNotFoundError,
-    InboxError,
-    LedgerError,
-    ListingError,
-    LlmError,
-    PromptError,
-    RenderError,
-    TailorError,
-)
+ROW_ERRORS = (*TAILOR_ERRORS, InboxError, ListingError, OSError)
 
 
 @dataclass
@@ -76,7 +59,8 @@ def check_row(row: InboxRow, config: Config) -> None:
 
 def staging_folder(config: Config, application_id: int) -> Path:
     folder = config.data_root / STAGING_DIR / str(application_id)
-    folder.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
     return folder
 
 
@@ -92,10 +76,7 @@ def triage_row(
         row.id = next_id(tracker)
         save()
     staging = staging_folder(config, row.id)
-    if (staging / LISTING_MD).exists():
-        listing = read_listing(staging / LISTING_MD)
-    else:
-        listing, _, _ = resolve_listing(fetch_listing(row.url, staging), staging)
+    listing, _, _ = resolve_listing(fetch_listing(row.url, staging), staging)
     triage = triage_folder(listing, staging, config, run, row.baseline or None)
     row.company, row.role = triage.company, triage.role
     name = folder_name(row.id, row.company, row.role, today)

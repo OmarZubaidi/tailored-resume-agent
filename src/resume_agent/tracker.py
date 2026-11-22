@@ -33,6 +33,7 @@ ID_WIDTH = 6
 STATUS_COLUMN = "Status"
 LAST_ROW = 1048576
 TEXT_TYPE = "s"
+MAX_LIST_LENGTH = 255
 APPLICATIONS_LINK_PREFIX = f"{APPLICATIONS_DIR}/"
 PERCENT_FORMAT = "0%"
 INTERESTED = "Interested"
@@ -369,10 +370,11 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
             set_cell(sheet, row, INBOX, name)
 
     for name, choices in (("Mode", MODES), ("Baseline", baselines)):
-        if not choices:
+        listed = ",".join(choices)
+        if not choices or "," in "".join(choices) or len(listed) > MAX_LIST_LENGTH:
             continue
         letter = INBOX.letter(name)
-        validation = DataValidation(type="list", formula1=f'"{",".join(choices)}"')
+        validation = DataValidation(type="list", formula1=f'"{listed}"')
         validation.add(f"{letter}2:{letter}{LAST_ROW}")
         sheet.add_data_validation(validation)
 

@@ -1,4 +1,5 @@
 import re
+import shutil
 from datetime import date
 from pathlib import Path
 
@@ -34,7 +35,8 @@ def folder_name(application_id: int, company: str, role: str, day: date) -> str:
 def move_folder(source: Path, data_root: Path, name: str) -> Path:
     folder = data_root / APPLICATIONS_DIR / name
     if folder.exists():
-        raise FileExistsError(f"Application folder already exists: {folder}")
+        shutil.rmtree(source)
+        return folder
     folder.parent.mkdir(parents=True, exist_ok=True)
     source.rename(folder)
     return folder

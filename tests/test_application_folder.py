@@ -1,7 +1,5 @@
 from datetime import date
 
-import pytest
-
 from resume_agent.application_folder import (
     add_timeline_event,
     folder_name,
@@ -62,18 +60,20 @@ def test_folder_name_falls_back_when_empty():
     assert folder_name(1, "///", "", DAY) == "00001 Unknown - Unknown (2026-11-21)"
 
 
-def test_move_folder_refuses_existing(tmp_path):
+def test_move_folder_keeps_an_earlier_move_of_the_same_row(tmp_path):
     staging = tmp_path / "staging"
     staging.mkdir()
-    (staging / "listing.md").write_text("listing")
+    (staging / "listing.md").write_text("first fetch")
 
     folder = move_folder(staging, tmp_path, "00001 Acme Health - Engineer (2026-11-21)")
 
     assert folder == tmp_path / "applications/00001 Acme Health - Engineer (2026-11-21)"
-    assert (folder / "listing.md").read_text() == "listing"
+    assert (folder / "listing.md").read_text() == "first fetch"
     staging.mkdir()
-    with pytest.raises(FileExistsError, match="already exists"):
-        move_folder(staging, tmp_path, folder.name)
+    (staging / "listing.md").write_text("second fetch")
+    assert move_folder(staging, tmp_path, folder.name) == folder
+    assert (folder / "listing.md").read_text() == "first fetch"
+    assert not staging.exists()
 
 
 def test_timeline_appends_dated_lines(tmp_path):

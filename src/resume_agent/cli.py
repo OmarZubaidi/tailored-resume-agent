@@ -14,10 +14,10 @@ from resume_agent.documents import DocumentError
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.ledger import LedgerError
-from resume_agent.llm import LlmError, run_prompt
+from resume_agent.llm import run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
+    TAILOR_ERRORS,
     Mode,
     baseline_dir,
     lock_application,
@@ -25,7 +25,6 @@ from resume_agent.pipeline import (
     tailor_folder,
     triage_folder,
 )
-from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.stages import (
     Ambiguous,
@@ -35,7 +34,6 @@ from resume_agent.stages import (
     pick_line,
     record_stage,
 )
-from resume_agent.tailor import TailorError
 from resume_agent.tracker import (
     InboxRow,
     Stage,
@@ -169,16 +167,7 @@ def tailor(
     config = load_config_or_exit()
     try:
         result = tailor_folder(folder, config, llm_runner(config), baseline, mode)
-    except (
-        BrowserError,
-        DocumentError,
-        FileNotFoundError,
-        LedgerError,
-        LlmError,
-        PromptError,
-        RenderError,
-        TailorError,
-    ) as error:
+    except TAILOR_ERRORS as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 

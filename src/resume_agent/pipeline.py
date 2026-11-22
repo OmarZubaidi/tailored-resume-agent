@@ -17,6 +17,7 @@ from resume_agent.ats import (
     report_markdown,
     resume_expected_lines,
 )
+from resume_agent.browser import BrowserError
 from resume_agent.config import Config
 from resume_agent.cover_letter import write_cover_letter
 from resume_agent.data_root import BASELINES_DIR
@@ -37,11 +38,13 @@ from resume_agent.guards.rules import (
 )
 from resume_agent.job_listing import LISTING_MD, Listing, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
-from resume_agent.ledger import LEDGER_FILE, load_ledger
-from resume_agent.prompts import parse_json_reply, render_prompt
-from resume_agent.render import cover_letter_html, render_pdf, resume_html
+from resume_agent.ledger import LEDGER_FILE, LedgerError, load_ledger
+from resume_agent.llm import LlmError
+from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
+from resume_agent.render import RenderError, cover_letter_html, render_pdf, resume_html
 from resume_agent.tailor import (
     BANK_FILE,
+    TailorError,
     apply_plan,
     bank_markdown,
     build_bank,
@@ -51,6 +54,16 @@ from resume_agent.tailor import (
 )
 from resume_agent.triage import TRIAGE_MD, Triage, add_fit, triage_listing
 
+TAILOR_ERRORS = (
+    BrowserError,
+    DocumentError,
+    FileNotFoundError,
+    LedgerError,
+    LlmError,
+    PromptError,
+    RenderError,
+    TailorError,
+)
 RESUME_DOCUMENT = "Resume"
 COVER_LETTER_DOCUMENT = "Cover-Letter"
 RESUME_SOURCE = "resume.md"
