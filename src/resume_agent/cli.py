@@ -40,6 +40,7 @@ from resume_agent.pipeline import (
 )
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
+from resume_agent.schedule import ScheduleError, install_schedule, log_path
 from resume_agent.stages import (
     Ambiguous,
     StageError,
@@ -438,6 +439,19 @@ def updates_reject(numbers: UpdateNumbers) -> None:
         raise typer.Exit(1) from error
     for update in rejected:
         typer.echo(f"Discarded {update.number}. {update.source} {update.kind.value}")
+
+
+@dev_app.command("install-schedule")
+def install_scan_schedule() -> None:
+    """Run the Gmail scan every email_scan_hours with launchd, catching up after sleep."""
+    config = load_config_or_exit()
+    try:
+        path = install_schedule(config)
+    except ScheduleError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    typer.echo(f"Gmail scan runs every {config.email_scan_hours}h: {path}")
+    typer.echo(f"Log: {log_path(Path.home())}")
 
 
 @dev_app.command("install-hooks")
