@@ -70,6 +70,8 @@ def test_years_in_words(months, words):
         ("I have a proven track record.", "uses the banned phrase 'proven track record'"),
         ("A fast-paced team.", "uses the banned phrase 'fast-paced'"),
         ("Let's make great things happen.", "uses the banned phrase 'great things happen'"),
+        ("Happy to circle back on it.", "uses the banned phrase 'circle back'"),
+        ("I spearheaded the migration.", "uses the banned phrase 'spearheaded'"),
         ("It's not just code, it's craft.", "uses contrast framing"),
         ("It's not about speed, it's about care.", "uses contrast framing"),
         ("I bring not only skill, but grit.", "uses contrast framing"),
