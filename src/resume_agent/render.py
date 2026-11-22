@@ -2,9 +2,7 @@ from html import escape
 from importlib.resources import files
 from pathlib import Path
 
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import sync_playwright
-
+from resume_agent.browser import chrome_page
 from resume_agent.config import Config
 from resume_agent.documents import CoverLetter, Resume, Role, Section
 
@@ -141,24 +139,15 @@ def cover_letter_html(letter: CoverLetter, config: Config) -> str:
 
 
 def render_pdf(html: str, output: Path) -> None:
-    with sync_playwright() as playwright:
-        try:
-            browser = playwright.chromium.launch(channel="chrome")
-        except PlaywrightError as error:
-            raise RenderError(f"Could not start Google Chrome: {error.message}") from error
-        try:
-            page = browser.new_page(
-                viewport={
-                    "width": CONTENT_WIDTH_PX,
-                    "height": 1000,
-                }
+    viewport = {
+        "width": CONTENT_WIDTH_PX,
+        "height": 1000,
+    }
+    with chrome_page(viewport) as page:
+        page.set_content(html, wait_until="load")
+        rows = page.evaluate(COUNT_CONTACT_ROWS_JS)
+        if rows > MAX_CONTACT_ROWS:
+            raise RenderError(
+                f"Contact line needs {rows} rows; shorten it to fit {MAX_CONTACT_ROWS}."
             )
-            page.set_content(html, wait_until="load")
-            rows = page.evaluate(COUNT_CONTACT_ROWS_JS)
-            if rows > MAX_CONTACT_ROWS:
-                raise RenderError(
-                    f"Contact line needs {rows} rows; shorten it to fit {MAX_CONTACT_ROWS}."
-                )
-            page.pdf(path=str(output), prefer_css_page_size=True, print_background=True)
-        finally:
-            browser.close()
+        page.pdf(path=str(output), prefer_css_page_size=True, print_background=True)

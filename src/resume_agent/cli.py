@@ -4,6 +4,7 @@ from typing import Annotated
 
 import typer
 
+from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
@@ -70,7 +71,7 @@ def render(
     source = folder or baseline_dir(config, baseline or config.default_baseline)
     try:
         result = render_folder(source, config)
-    except (DocumentError, RenderError, FileNotFoundError) as error:
+    except (BrowserError, DocumentError, RenderError, FileNotFoundError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 

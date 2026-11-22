@@ -1,0 +1,25 @@
+import pytest
+from playwright.sync_api import Error as PlaywrightError
+
+from resume_agent.browser import BrowserError, chrome_page
+
+
+def test_chrome_launch_failure_is_a_browser_error(monkeypatch):
+    class FailingChromium:
+        def launch(self, **_):
+            raise PlaywrightError("Chromium distribution 'chrome' is not found")
+
+    class FakePlaywright:
+        chromium = FailingChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr("resume_agent.browser.sync_playwright", FakePlaywright)
+
+    with pytest.raises(BrowserError, match="Could not start Google Chrome"):
+        with chrome_page():
+            pass
