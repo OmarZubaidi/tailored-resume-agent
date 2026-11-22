@@ -2,7 +2,6 @@ import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
-from enum import StrEnum
 from pathlib import Path
 
 from resume_agent.application_folder import (
@@ -16,7 +15,7 @@ from resume_agent.config import Config
 from resume_agent.data_root import APPLICATIONS_DIR, STATE_DIR
 from resume_agent.job_listing import ListingError, fetch_listing
 from resume_agent.pipeline import TAILOR_ERRORS, Mode, baseline_dir, tailor_folder, triage_folder
-from resume_agent.tracker import MODES, Application, InboxRow, Stage, Tracker
+from resume_agent.tracker import MODES, Application, Decision, InboxRow, Stage, Tracker
 from resume_agent.validation import resolve_listing
 
 FLAGGED = "flagged"
@@ -27,11 +26,6 @@ STAGING_DIR = Path(STATE_DIR, "inbox")
 
 class InboxError(Exception):
     pass
-
-
-class Decision(StrEnum):
-    PROCEED = "proceed"
-    DROP = "drop"
 
 
 ROW_ERRORS = (*TAILOR_ERRORS, InboxError, ListingError, OSError)
@@ -180,9 +174,11 @@ def process_inbox(
     today: date,
     save: Callable[[], None],
     report: Callable[[str], None],
+    retry_failed: bool = True,
 ) -> InboxResult:
     result = InboxResult()
-    pending = [row for row in tracker.inbox if row.url and row.status in PENDING_STATUSES]
+    statuses = PENDING_STATUSES if retry_failed else ("",)
+    pending = [row for row in tracker.inbox if row.url and row.status in statuses]
     for row in pending:
         report(f"Processing {row.url}")
         try:
@@ -195,4 +191,56 @@ def process_inbox(
             fail_row(row, error, result)
         save()
     result.flagged = [row for row in tracker.inbox if row.status == FLAGGED]
+    return result
+
+
+def merge_results(target: InboxResult, source: InboxResult) -> None:
+    target.tailored += source.tailored
+    target.failed += source.failed
+
+
+def apply_decision(
+    row: InboxRow,
+    tracker: Tracker,
+    config: Config,
+    run: Callable[[str], str],
+    today: date,
+    save: Callable[[], None],
+    result: InboxResult,
+) -> None:
+    decision = row.decision
+    if decision not in set(Decision):
+        raise InboxError(
+            f"Decision {decision!r} for {row.url} must be one of: {', '.join(Decision)}"
+        )
+    retry = row.status == FAILED and decision == Decision.PROCEED
+    if row.status != FLAGGED and not retry:
+        raise InboxError(f"Decision {decision!r} for {row.url} needs a flagged or failed row")
+    row.decision = ""
+    if retry:
+        row.status = ""
+    else:
+        decided = review_rows(tracker, [row.id], Decision(decision), config, run, today, save)
+        merge_results(result, decided)
+
+
+def sync_inbox(
+    tracker: Tracker,
+    config: Config,
+    run: Callable[[str], str],
+    today: date,
+    save: Callable[[], None],
+    report: Callable[[str], None],
+) -> InboxResult:
+    result = InboxResult()
+    for row in [row for row in tracker.inbox if row.decision]:
+        try:
+            apply_decision(row, tracker, config, run, today, save, result)
+        except InboxError as error:
+            report(f"{error}. Left in the Decision cell.")
+            continue
+        save()
+    processed = process_inbox(tracker, config, run, today, save, report, retry_failed=False)
+    merge_results(result, processed)
+    result.flagged = processed.flagged
     return result

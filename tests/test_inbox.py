@@ -9,7 +9,8 @@ from typer.testing import CliRunner
 from resume_agent import cli, inbox
 from resume_agent.cli import app
 from resume_agent.config import Config
-from resume_agent.inbox import FAILED, FLAGGED, process_inbox
+from resume_agent.guards.rules import excel_lock_file
+from resume_agent.inbox import FAILED, FLAGGED, process_inbox, sync_inbox
 from resume_agent.job_listing import Listing, ListingError, save_listing
 from resume_agent.pipeline import Mode
 from resume_agent.tailor import TailorError
@@ -214,7 +215,7 @@ def test_inbox_command_lists_flagged_jobs(config, calls, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "00001  Globex - Platform Engineer: Clearance:" in result.output
-    assert "resume_agent review proceed|drop <ID>..." in result.output
+    assert "typing proceed or drop in the Decision column" in result.output
 
 
 @pytest.fixture
@@ -251,6 +252,97 @@ def test_review_ignores_repeated_ids(config, calls, fixed_today):
     assert result.exit_code == 0, result.output
     folder = config.data_root / "applications/00001 Globex - Platform Engineer (2026-11-21)"
     assert (folder / "timeline.md").read_text().count("Skipped") == 1
+
+
+def sync(tracker: Tracker, config: Config, reports: list[str] | None = None):
+    saves = []
+
+    def save() -> None:
+        saves.append(True)
+        save_tracker(tracker, config, TODAY)
+
+    result = sync_inbox(
+        tracker,
+        config,
+        fake_llm,
+        TODAY,
+        save=save,
+        report=(reports if reports is not None else []).append,
+    )
+    return result, saves
+
+
+def test_decisions_proceed_and_drop_flagged_rows(config, calls, monkeypatch):
+    other = "https://jobs.example.com/globex/3"
+    staff = ("Globex", "Staff Engineer", "Remote. TS/SCI clearance required.")
+    monkeypatch.setitem(LISTINGS, other, staff)
+    tracker = Tracker(inbox=[InboxRow(url=FLAGGED_URL), InboxRow(url=other)])
+    run(tracker, config)
+    tracker.inbox[0].decision = "proceed"
+    tracker.inbox[1].decision = "drop"
+
+    result, _ = sync(tracker, config)
+
+    assert tracker.inbox == []
+    assert [app.status for app in result.tailored] == ["Interested", "Skipped"]
+
+
+def test_failed_rows_wait_for_proceed(config, calls, monkeypatch):
+    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL, status=FAILED, reason="timeout")])
+
+    untouched, saves = sync(tracker, config)
+    tracker.inbox[0].decision = "proceed"
+    retried, _ = sync(tracker, config)
+
+    assert untouched.tailored == [] and saves == []
+    assert calls["fetch"] == [CLEAR_URL]
+    assert retried.tailored[0].company == "Acme Health"
+
+
+def test_new_rows_are_processed_and_nothing_waiting_saves_nothing(config, calls):
+    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL)])
+
+    first, _ = sync(tracker, config)
+    second, saves = sync(tracker, config)
+
+    assert len(first.tailored) == 1
+    assert second.tailored == [] and saves == []
+
+
+@pytest.mark.parametrize(
+    ("status", "decision", "reason"),
+    [
+        (FAILED, "drop", "needs a flagged or failed row"),
+        (FLAGGED, "procede", "must be one of: proceed, drop"),
+    ],
+)
+def test_unusable_decision_stays_in_its_cell(config, calls, status, decision, reason):
+    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL, id=1, status=status, decision=decision)])
+    reports = []
+
+    _, saves = sync(tracker, config, reports)
+
+    assert reports == [
+        f"Decision {decision!r} for {CLEAR_URL} {reason}. Left in the Decision cell."
+    ]
+    assert tracker.inbox[0].decision == decision
+    assert saves == []
+
+
+def test_sync_command_leaves_the_inbox_while_excel_is_open(config, calls, monkeypatch):
+    monkeypatch.setattr(cli, "run_prompt", lambda _, prompt: fake_llm(prompt))
+    save_tracker(Tracker(inbox=[InboxRow(url=CLEAR_URL)]), config)
+    lock = excel_lock_file(workbook_path(config.data_root))
+    lock.write_text("")
+
+    open_run = CliRunner().invoke(app, ["sync"])
+    lock.unlink()
+    closed_run = CliRunner().invoke(app, ["sync"])
+
+    assert "Excel is open; the Inbox waits until it closes." in open_run.output
+    assert closed_run.exit_code == 0, closed_run.output
+    assert "Interested: 00001  Acme Health - Software Engineer" in closed_run.output
+    assert load_tracker(workbook_path(config.data_root)).inbox == []
 
 
 def test_review_rejects_ids_that_are_not_flagged(config, calls):

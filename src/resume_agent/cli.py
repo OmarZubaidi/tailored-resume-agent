@@ -1,5 +1,6 @@
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
@@ -11,14 +12,27 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.guards.rules import GuardError, ensure_excel_closed
-from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
+from resume_agent.guards.rules import (
+    GuardError,
+    ensure_excel_closed,
+    excel_lock_file,
+    is_locked,
+)
+from resume_agent.inbox import (
+    InboxError,
+    InboxResult,
+    process_inbox,
+    review_rows,
+    sync_inbox,
+)
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
+from resume_agent.launch_agent import LaunchAgentError, install_sync_agent, log_path
 from resume_agent.llm import run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
     TAILOR_ERRORS,
     Mode,
+    applied_files,
     baseline_dir,
     lock_application,
     render_folder,
@@ -27,6 +41,7 @@ from resume_agent.pipeline import (
 )
 from resume_agent.render import RenderError
 from resume_agent.stages import (
+    LOCKING_STAGES,
     Ambiguous,
     StageError,
     find_application,
@@ -34,7 +49,9 @@ from resume_agent.stages import (
     pick_line,
     save_stage,
 )
+from resume_agent.sync import SyncError, sync_lock, sync_stages
 from resume_agent.tracker import (
+    Decision,
     InboxRow,
     Stage,
     Tracker,
@@ -184,6 +201,16 @@ def today() -> date:
     return date.today()
 
 
+@contextmanager
+def exclusive(config: Config) -> Iterator[None]:
+    try:
+        with sync_lock(config.data_root):
+            yield
+    except SyncError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+
 def open_tracker(config: Config) -> Tracker:
     path = workbook_path(config.data_root)
     ensure_excel_closed(path)
@@ -196,8 +223,13 @@ def flagged_line(row: InboxRow) -> str:
 
 @app.command("inbox")
 def inbox() -> None:
-    """Fetch, triage and tailor every new URL in the Inbox sheet."""
+    """Fetch, triage and tailor every new or failed URL in the Inbox sheet."""
     config = load_config_or_exit()
+    with exclusive(config):
+        run_inbox(config)
+
+
+def run_inbox(config: Config) -> None:
     try:
         tracker = open_tracker(config)
         result = process_inbox(
@@ -221,6 +253,11 @@ def review(
 ) -> None:
     """Proceed with or drop flagged Inbox jobs."""
     config = load_config_or_exit()
+    with exclusive(config):
+        run_review(config, decision, application_ids)
+
+
+def run_review(config: Config, decision: Decision, application_ids: list[int]) -> None:
     try:
         tracker = open_tracker(config)
         result = review_rows(
@@ -247,8 +284,61 @@ def echo_inbox_result(result: InboxResult) -> None:
     if result.flagged:
         lines = "\n".join(flagged_line(row) for row in result.flagged)
         typer.echo(f"Flagged, waiting for your review:\n{lines}")
-        typer.echo("Decide with: resume_agent review proceed|drop <ID>...")
+        typer.echo(
+            "Decide by typing proceed or drop in the Decision column (then save and close Excel),"
+            " or run: resume_agent review proceed|drop <ID>..."
+        )
     if result.failed:
+        raise typer.Exit(1)
+
+
+def inbox_waiting(tracker: Tracker) -> bool:
+    return any(row.decision or (row.url and not row.status) for row in tracker.inbox)
+
+
+@app.command("sync")
+def sync() -> None:
+    """Act on what was typed in the workbook.
+
+    Stage dates add timeline lines and lock files; clearing a date undoes that. Once Excel is
+    closed, new Inbox URLs are fetched, triaged and tailored, and Decision cells are applied.
+    """
+    config = load_config_or_exit()
+    with exclusive(config):
+        run_sync(config)
+
+
+def run_sync(config: Config) -> None:
+    path = workbook_path(config.data_root)
+    try:
+        tracker = load_tracker(path)
+        stages = sync_stages(tracker, config, today())
+    except (SyncError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    for event in stages.events:
+        typer.echo(event)
+    for failure in stages.failures:
+        typer.echo(failure, err=True)
+
+    if excel_lock_file(path).exists():
+        if inbox_waiting(tracker):
+            typer.echo("Excel is open; the Inbox waits until it closes.")
+    elif inbox_waiting(tracker):
+        try:
+            result = sync_inbox(
+                tracker,
+                config,
+                llm_runner(config),
+                today(),
+                save=lambda: save_tracker(tracker, config),
+                report=typer.echo,
+            )
+        except (GuardError, TrackerError) as error:
+            typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
+            raise typer.Exit(1) from error
+        echo_inbox_result(result)
+    if stages.failures:
         raise typer.Exit(1)
 
 
@@ -276,12 +366,29 @@ def update(
 ) -> None:
     """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application.
 
-    Applied locks the resume and cover letter in the application folder.
+    Applied, Rejected and Skipped lock the resume and cover letter in the application folder.
     """
     if (resume_file or letter_file) and stage != Stage.APPLIED:
         typer.echo("--resume-file and --letter-file only go with Applied.", err=True)
         raise typer.Exit(1)
     config = load_config_or_exit()
+    with exclusive(config):
+        record_update(
+            config, company, stage, day, note, title, application_id, resume_file, letter_file
+        )
+
+
+def record_update(
+    config: Config,
+    company: str,
+    stage: Stage,
+    day: datetime | None,
+    note: str | None,
+    title: str | None,
+    application_id: int | None,
+    resume_file: Path | None,
+    letter_file: Path | None,
+) -> None:
     try:
         tracker = open_tracker(config)
         variants = load_variants(config.data_root)
@@ -292,7 +399,13 @@ def update(
             raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
 
         def lock_files() -> bool | None:
-            if stage != Stage.APPLIED or not folder:
+            if stage not in LOCKING_STAGES or not folder:
+                return None
+            names = applied_files(config)
+            if stage != Stage.APPLIED and (
+                not all((folder / name).exists() for name in names)
+                or all(is_locked(folder / name) for name in names)
+            ):
                 return None
             return lock_application(folder, config, stage_day, resume_file, letter_file)
 
@@ -311,6 +424,19 @@ def update(
         typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
     elif stage == Stage.APPLIED:
         typer.echo("No application folder, so no files were locked.", err=True)
+
+
+@dev_app.command("install-sync")
+def install_sync() -> None:
+    """Run `sync` with launchd whenever the data folder changes (workbook saved, Excel closed)."""
+    config = load_config_or_exit()
+    try:
+        path = install_sync_agent(config)
+    except LaunchAgentError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    typer.echo(f"sync runs on every change in {config.data_root}: {path}")
+    typer.echo(f"Log: {log_path(Path.home())}")
 
 
 @dev_app.command("install-hooks")

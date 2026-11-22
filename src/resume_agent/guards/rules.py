@@ -63,6 +63,20 @@ def lock_applied_files(folder: Path, names: list[str], today: date | None = None
         notes.writelines(lines)
 
 
+def unlock_applied_files(folder: Path, names: list[str], today: date | None = None) -> None:
+    today = today or date.today()
+    lines = []
+    for name in names:
+        path = folder / name
+        if not is_locked(path):
+            continue
+        path.chmod(path.stat().st_mode | stat.S_IWUSR)
+        lines.append(f"- {today.isoformat()} unlocked `{name}`\n")
+
+    with (folder / NOTES_FILE).open("a") as notes:
+        notes.writelines(lines)
+
+
 def writable_target(folder: Path, name: str) -> Path:
     target = folder / name
     if not is_locked(target):

@@ -100,6 +100,7 @@ class Layout:
     widths: dict[str, float]
     inputs: frozenset[str] = frozenset()
     bold: frozenset[str] = frozenset()
+    added: frozenset[str] = frozenset()
 
     def letter(self, name: str) -> str:
         return get_column_letter(self.columns.index(name) + 1)
@@ -133,19 +134,39 @@ APPLICATIONS = Layout(
     bold=frozenset({"Company"}),
 )
 INBOX = Layout(
-    columns=("URL", "Mode", "Baseline", "Status", "ID", "Company", "Role", "Folder", "Reason"),
+    columns=(
+        "URL",
+        "Mode",
+        "Baseline",
+        "Decision",
+        "Status",
+        "ID",
+        "Company",
+        "Role",
+        "Folder",
+        "Reason",
+    ),
     widths={
         "URL": 50,
         "Mode": 8,
         "Baseline": 10,
+        "Decision": 9,
         "Status": 9,
         **dict.fromkeys(ID_COLUMNS, ID_WIDTH),
         "Company": 20,
         "Role": 28,
         "Reason": 50,
     },
-    inputs=frozenset({"URL", "Mode", "Baseline"}),
+    inputs=frozenset({"URL", "Mode", "Baseline", "Decision"}),
+    added=frozenset({"Decision"}),
 )
+
+
+class Decision(StrEnum):
+    PROCEED = "proceed"
+    DROP = "drop"
+
+
 OVERVIEW = Layout(
     columns=(
         "Week Starting",
@@ -199,6 +220,7 @@ class InboxRow:
     url: str
     mode: str = ""
     baseline: str = ""
+    decision: str = ""
     status: str = ""
     id: int | None = None
     company: str = ""
@@ -354,6 +376,7 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
             "URL": item.url,
             "Mode": item.mode,
             "Baseline": item.baseline,
+            "Decision": item.decision,
             "Status": item.status,
             "ID": item.id,
             "Company": item.company,
@@ -370,7 +393,7 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
         for name in INBOX.columns:
             set_cell(sheet, row, INBOX, name)
 
-    for name, choices in (("Mode", MODES), ("Baseline", baselines)):
+    for name, choices in (("Mode", MODES), ("Baseline", baselines), ("Decision", tuple(Decision))):
         listed = ",".join(choices)
         if not choices or "," in "".join(choices) or len(listed) > MAX_LIST_LENGTH:
             continue
@@ -491,19 +514,28 @@ def cell_id(value, where: str) -> int | None:
     return int(text)
 
 
+def cell_value(column: str, cell: Cell | None):
+    if cell is None:
+        return None
+    return link_folder(cell) if column == FOLDER_COLUMN else cell.value
+
+
 def sheet_rows(workbook, name: str, layout: Layout) -> list[tuple[int, dict]]:
     if name not in workbook.sheetnames:
         raise TrackerError(f"Workbook has no {name!r} sheet. Was it made by `resume_agent init`?")
     sheet = workbook[name]
-    header = tuple(cell_text(cell.value) for cell in sheet[1])[: len(layout.columns)]
-    if header != layout.columns:
+    header = [cell_text(cell.value) for cell in sheet[1]]
+    expected = (layout.columns, tuple(c for c in layout.columns if c not in layout.added))
+    current = next((cols for cols in expected if tuple(header[: len(cols)]) == cols), None)
+    if current is None:
         raise TrackerError(f"{name} sheet columns changed. Expected: {', '.join(layout.columns)}")
+    positions = {column: header.index(column) for column in current}
     rows = []
     for number, cells in enumerate(sheet.iter_rows(min_row=2), start=2):
-        record = {
-            name: link_folder(cell) if name == FOLDER_COLUMN else cell.value
-            for name, cell in zip(layout.columns, cells, strict=False)
+        by_column = {
+            column: cells[index] for column, index in positions.items() if index < len(cells)
         }
+        record = {column: cell_value(column, by_column.get(column)) for column in layout.columns}
         if any(cell_text(value) for value in record.values()):
             rows.append((number, record))
     return rows
@@ -537,6 +569,7 @@ def read_inbox_row(number: int, record: dict) -> InboxRow:
         url=cell_text(record["URL"]),
         mode=cell_text(record["Mode"]).lower(),
         baseline=cell_text(record["Baseline"]),
+        decision=cell_text(record["Decision"]).lower(),
         status=cell_text(record["Status"]).lower(),
         id=cell_id(record["ID"], f"{INBOX_SHEET} row {number}"),
         company=cell_text(record["Company"]),
