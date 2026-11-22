@@ -35,7 +35,8 @@ class FakeRequest:
     def __init__(self, result) -> None:
         self.result = result
 
-    def execute(self):
+    def execute(self, num_retries: int = 0):
+        self.num_retries = num_retries
         if isinstance(self.result, Exception):
             raise self.result
         return self.result

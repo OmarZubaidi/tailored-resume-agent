@@ -1,4 +1,5 @@
 import base64
+import codecs
 import json
 import re
 from collections.abc import Iterator
@@ -15,6 +16,7 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from keyring.errors import KeyringError
 
 from resume_agent.config import Config
 from resume_agent.guards.rules import GMAIL_SCOPES
@@ -24,6 +26,11 @@ KEYCHAIN_TOKEN = "gmail-token"
 LOGIN_COMMAND = "resume_agent gmail login --client-file <downloaded JSON>"
 SETUP_DOC = "docs/gmail-setup.md"
 REQUEST_ERRORS = (HttpError, GoogleAuthError, httplib2.HttpLib2Error, OSError)
+REQUEST_RETRIES = 3
+REVOKED_GRANT = "invalid_grant"
+CONNECTIONS_URL = "https://myaccount.google.com/connections"
+CHARSET = re.compile(r"charset=\"?([\w.:-]+)", re.IGNORECASE)
+DEFAULT_CHARSET = "utf-8"
 HIDDEN_TAGS = frozenset({"head", "script", "style"})
 WHITESPACE = re.compile(r"\s+")
 
@@ -73,10 +80,20 @@ def walk_parts(payload: dict) -> Iterator[dict]:
         yield from walk_parts(part)
 
 
+def part_charset(part: dict) -> str:
+    match = CHARSET.search(header(part, "Content-Type"))
+    if not match:
+        return DEFAULT_CHARSET
+    try:
+        return codecs.lookup(match.group(1)).name
+    except LookupError:
+        return DEFAULT_CHARSET
+
+
 def decoded_body(part: dict) -> str:
     data = part.get("body", {}).get("data", "")
     padded = data + "=" * (-len(data) % 4)
-    return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+    return base64.urlsafe_b64decode(padded).decode(part_charset(part), errors="replace")
 
 
 def body_text(payload: dict) -> str:
@@ -123,11 +140,17 @@ def require_account(account: str, config: Config) -> None:
 
 
 def store_credentials(credentials: Credentials) -> None:
-    keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_TOKEN, credentials.to_json())
+    try:
+        keyring.set_password(KEYCHAIN_SERVICE, KEYCHAIN_TOKEN, credentials.to_json())
+    except KeyringError as error:
+        raise GmailError(f"Could not save the Gmail token to the Keychain: {error}") from error
 
 
 def stored_credentials() -> Credentials:
-    token = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_TOKEN)
+    try:
+        token = keyring.get_password(KEYCHAIN_SERVICE, KEYCHAIN_TOKEN)
+    except KeyringError as error:
+        raise GmailError(f"Could not read the Gmail token from the Keychain: {error}") from error
     if not token:
         raise GmailError(f"Not signed in to Gmail. Run `{LOGIN_COMMAND}`; see {SETUP_DOC}.")
     try:
@@ -141,6 +164,8 @@ def stored_credentials() -> Credentials:
         try:
             credentials.refresh(Request())
         except RefreshError as error:
+            if REVOKED_GRANT not in str(error):
+                raise GmailError(f"Could not refresh Gmail access: {error}") from error
             raise GmailError(
                 f"Gmail sign-in expired or was revoked. Run `{LOGIN_COMMAND}` again."
             ) from error
@@ -159,7 +184,7 @@ class Mailbox:
     @staticmethod
     def execute(request) -> dict:
         try:
-            return request.execute()
+            return request.execute(num_retries=REQUEST_RETRIES)
         except REQUEST_ERRORS as error:
             raise GmailError(f"Gmail request failed: {error}") from error
 
@@ -197,8 +222,11 @@ def login(client_file: Path, config: Config) -> str:
     except (OSError, ValueError) as error:
         raise GmailError(f"{client_file} is not a Desktop OAuth client file: {error}") from error
     credentials = flow.run_local_server(port=0, open_browser=True)
-    require_read_only(credentials)
-    account = Mailbox(gmail_service(credentials)).account()
-    require_account(account, config)
+    try:
+        require_read_only(credentials)
+        account = Mailbox(gmail_service(credentials)).account()
+        require_account(account, config)
+    except GmailError as error:
+        raise GmailError(f"{error}\nRemove the refused grant at {CONNECTIONS_URL}.") from error
     store_credentials(credentials)
     return account

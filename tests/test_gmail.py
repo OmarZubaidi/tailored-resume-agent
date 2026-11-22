@@ -1,10 +1,20 @@
+import base64
 import json
 from datetime import date
 
 import pytest
-from fake_gmail import ACCOUNT, FakeKeychain, FakeService, encoded, gmail_message, token_info
+from fake_gmail import (
+    ACCOUNT,
+    FakeKeychain,
+    FakeRequest,
+    FakeService,
+    encoded,
+    gmail_message,
+    token_info,
+)
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
+from keyring.errors import KeyringError
 from typer.testing import CliRunner
 
 from resume_agent import gmail
@@ -73,11 +83,58 @@ def test_expired_token_is_refreshed_and_stored(monkeypatch):
     assert stored["token"] == "new-access-token"
 
 
+def test_transient_refresh_failure_is_not_called_revoked(monkeypatch):
+    use_keychain(monkeypatch, token_info(expiry="2000-01-01T00:00:00Z"))
+
+    def refresh(credentials, request):
+        raise RefreshError("backendError")
+
+    monkeypatch.setattr(Credentials, "refresh", refresh)
+
+    with pytest.raises(GmailError, match="Could not refresh Gmail access: backendError"):
+        stored_credentials()
+
+
+def test_keychain_failure_is_a_gmail_error(monkeypatch):
+    def locked(service: str, name: str) -> str:
+        raise KeyringError("interaction not allowed")
+
+    monkeypatch.setattr(gmail.keyring, "get_password", locked)
+
+    with pytest.raises(GmailError, match="interaction not allowed"):
+        stored_credentials()
+
+
+def test_requests_are_retried():
+    request = FakeRequest({"emailAddress": ACCOUNT})
+
+    Mailbox.execute(request)
+
+    assert request.num_retries == 3
+
+
+def test_body_uses_the_part_charset():
+    body = {
+        "mimeType": "text/plain",
+        "headers": [
+            {
+                "name": "Content-Type",
+                "value": 'text/plain; charset="iso-8859-1"',
+            },
+        ],
+        "body": {
+            "data": base64.urlsafe_b64encode("Señor".encode("iso-8859-1")).decode(),
+        },
+    }
+
+    assert body_text(body) == "Señor"
+
+
 def test_revoked_token_says_to_sign_in_again(monkeypatch):
     use_keychain(monkeypatch, token_info(expiry="2000-01-01T00:00:00Z"))
 
     def refresh(credentials, request):
-        raise RefreshError("invalid_grant")
+        raise RefreshError("invalid_grant: Token has been expired or revoked.")
 
     monkeypatch.setattr(Credentials, "refresh", refresh)
 
@@ -187,7 +244,7 @@ def test_login_refuses_wrong_account(monkeypatch, config, tmp_path):
     use_service(monkeypatch, FakeService(account="someone.else@example.com"))
     use_flow(monkeypatch, list(gmail.GMAIL_SCOPES))
 
-    with pytest.raises(GmailError, match="Signed in to Gmail as someone.else"):
+    with pytest.raises(GmailError, match="(?s)Signed in to Gmail as someone.else.*connections"):
         login(tmp_path / "client.json", config)
     assert keychain.items == {}
 
