@@ -128,6 +128,10 @@ li::before {
   margin-top: 26pt;
 }
 
+.letter p:not(.signature) {
+  text-align: justify;
+}
+
 .letter .signature {
   margin-top: 22pt;
 }
