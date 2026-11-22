@@ -1,9 +1,14 @@
 import subprocess
+from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
+from resume_agent.documents import DocumentError
+from resume_agent.pipeline import baseline_dir, render_folder
+from resume_agent.render import RenderError
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
 config_app = typer.Typer(help="Inspect the config file.", no_args_is_help=True)
@@ -46,6 +51,33 @@ def init() -> None:
     for path in created:
         typer.echo(f"Created {path}")
     typer.echo(f"Data root ready: {config.data_root}")
+
+
+@app.command("render")
+def render(
+    folder: Annotated[
+        Path | None, typer.Argument(help="Folder with resume.md and cover-letter.md.")
+    ] = None,
+    baseline: Annotated[
+        str | None, typer.Option(help="Baseline name; defaults to default_baseline.")
+    ] = None,
+) -> None:
+    """Render resume and cover letter PDFs and write the ATS report."""
+    if folder and baseline:
+        typer.echo("Pass a folder or --baseline, not both.", err=True)
+        raise typer.Exit(1)
+    config = load_config_or_exit()
+    source = folder or baseline_dir(config, baseline or config.default_baseline)
+    try:
+        result = render_folder(source, config)
+    except (DocumentError, RenderError, FileNotFoundError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Wrote {result.resume_pdf}\nWrote {result.cover_letter_pdf}")
+    typer.echo(f"ATS {'PASS' if result.passed else 'FAIL'}: {result.report}")
+    if not result.passed:
+        raise typer.Exit(1)
 
 
 @dev_app.command("install-hooks")
