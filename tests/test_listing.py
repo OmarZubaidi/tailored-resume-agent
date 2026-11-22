@@ -1,8 +1,8 @@
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 
 import pytest
+from browser_marks import needs_browser
 
 from resume_agent.job_listing import (
     LISTING_MD,
@@ -14,9 +14,6 @@ from resume_agent.job_listing import (
     listing_from_pdf,
     read_listing,
 )
-
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
 REQUIREMENTS = " ".join(f"Experience with system number {n}." for n in range(30))
 PAGE = f"""<!doctype html>
@@ -74,13 +71,13 @@ def not_found_url():
     server.shutdown()
 
 
-@needs_chrome
+@needs_browser
 def test_http_error_page_is_rejected(tmp_path, not_found_url):
     with pytest.raises(ListingError, match="HTTP 404"):
         fetch_listing(not_found_url, tmp_path)
 
 
-@needs_chrome
+@needs_browser
 def test_multi_line_heading_becomes_one_line_title(tmp_path):
     page = tmp_path / "job.html"
     heading = "<h1>Senior Software Engineer</h1>"
@@ -92,7 +89,7 @@ def test_multi_line_heading_becomes_one_line_title(tmp_path):
     assert read_listing(tmp_path / "out" / LISTING_MD).title == "Senior Engineer"
 
 
-@needs_chrome
+@needs_browser
 def test_fetch_listing_saves_pdf_and_main_text(tmp_path):
     page = tmp_path / "job.html"
     page.write_text(PAGE)
@@ -107,13 +104,13 @@ def test_fetch_listing_saves_pdf_and_main_text(tmp_path):
     assert read_listing(out / LISTING_MD) == listing
 
 
-@needs_chrome
+@needs_browser
 def test_fetch_listing_unreachable_url(tmp_path):
     with pytest.raises(ListingError, match="Could not load"):
         fetch_listing("http://localhost:9/nothing", tmp_path)
 
 
-@needs_chrome
+@needs_browser
 def test_listing_from_supplied_pdf(tmp_path):
     page = tmp_path / "job.html"
     page.write_text(PAGE)

@@ -1,6 +1,5 @@
-from pathlib import Path
-
 import pytest
+from browser_marks import needs_browser
 
 from resume_agent.ats import (
     GARBLED,
@@ -15,9 +14,6 @@ from resume_agent.ats import (
 from resume_agent.config import Config
 from resume_agent.documents import parse_cover_letter, parse_resume
 from resume_agent.render import cover_letter_html, render_pdf, resume_html
-
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
 RESUME = """---
 headline: Software Engineer · TypeScript · AWS
@@ -98,7 +94,7 @@ def test_info_checks_warn_without_failing_the_report():
     assert "| Coverage | WARN | 90% |" in report
 
 
-@needs_chrome
+@needs_browser
 def test_rendered_resume_passes_every_check(config, tmp_path):
     resume = parse_resume(RESUME)
     pdf = tmp_path / "resume.pdf"
@@ -110,7 +106,7 @@ def test_rendered_resume_passes_every_check(config, tmp_path):
     assert failed == []
 
 
-@needs_chrome
+@needs_browser
 def test_rendered_cover_letter_passes_every_check(config, tmp_path):
     letter = parse_cover_letter("Dear Hiring Manager,\n\nI build things.\n\nBest,\n")
     pdf = tmp_path / "letter.pdf"
@@ -121,7 +117,7 @@ def test_rendered_cover_letter_passes_every_check(config, tmp_path):
     assert [check for check in checks if not check.passed] == []
 
 
-@needs_chrome
+@needs_browser
 def test_mismatch_and_missing_heading_fail(config, tmp_path):
     resume = parse_resume(RESUME)
     pdf = tmp_path / "resume.pdf"

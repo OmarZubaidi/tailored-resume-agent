@@ -8,7 +8,7 @@ from pdfminer.psexceptions import PSException
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page
 
-from resume_agent.browser import chrome_page
+from resume_agent.browser import browser_page
 
 LISTING_PDF = "listing.pdf"
 LISTING_MD = "listing.md"
@@ -71,7 +71,7 @@ def save_listing(listing: Listing, out_dir: Path) -> Listing:
 
 def fetch_listing(url: str, out_dir: Path) -> Listing:
     out_dir.mkdir(parents=True, exist_ok=True)
-    with chrome_page() as page:
+    with browser_page() as page:
         try:
             response = page.goto(url, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT_MS)
         except PlaywrightError as error:

@@ -1,13 +1,9 @@
-from pathlib import Path
-
 import pytest
+from browser_marks import needs_browser
 from typer.testing import CliRunner
 
 from resume_agent.cli import app
 from resume_agent.pipeline import pdf_name
-
-CHROME = Path("/Applications/Google Chrome.app")
-needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
 RESUME = """---
 headline: Software Engineer · AWS
@@ -36,7 +32,7 @@ def test_pdf_name(person, expected):
     assert pdf_name(person, "Resume") == expected
 
 
-@needs_chrome
+@needs_browser
 def test_render_command_on_baseline(config_data, write_config, data_root):
     config_data = {
         **config_data,
@@ -60,7 +56,7 @@ def test_render_command_on_baseline(config_data, write_config, data_root):
     assert "Keyword coverage" not in report
 
 
-@needs_chrome
+@needs_browser
 def test_render_reports_keyword_coverage_when_listing_present(config_data, write_config, tmp_path):
     write_config(config_data)
     (tmp_path / "resume.md").write_text(RESUME)
@@ -77,7 +73,7 @@ def test_render_reports_keyword_coverage_when_listing_present(config_data, write
     assert "Missing: Kubernetes" in report
 
 
-@needs_chrome
+@needs_browser
 def test_render_command_named_baseline_failing_ats(config_data, write_config, data_root):
     write_config(config_data)
     baseline = data_root / "baselines" / "full-stack"
@@ -115,7 +111,7 @@ def test_render_blocks_open_placeholders(config_data, write_config, tmp_path):
     assert "Fill these placeholders before rendering: [Hiring Manager]" in result.output
 
 
-@needs_chrome
+@needs_browser
 def test_render_draft_allows_placeholders(config_data, write_config, tmp_path):
     write_config(config_data)
     (tmp_path / "resume.md").write_text(RESUME)
