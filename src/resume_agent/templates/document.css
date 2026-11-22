@@ -112,7 +112,7 @@ li::before {
 
 .letter {
   font-size: 11.5pt;
-  line-height: 1.38;
+  line-height: 1.45;
 }
 
 .letter p {
@@ -121,4 +121,8 @@ li::before {
 
 .letter p:first-child {
   margin-top: 26pt;
+}
+
+.letter .signature {
+  margin-top: 22pt;
 }

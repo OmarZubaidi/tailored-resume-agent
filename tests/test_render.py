@@ -88,7 +88,7 @@ def test_cover_letter_html_has_signature_block(config):
 
     assert "<h2>Cover Letter</h2>" in html
     assert "<p>I build things.</p>" in html
-    signature = html.split("<p>Best,")[1]
+    signature = html.split('<p class="signature">Best,')[1]
     assert signature.startswith(f"<br>{config.name}<br>")
     assert f"<br>{escape(config.location)}</p>" in signature
     assert "github" not in signature

@@ -123,7 +123,7 @@ def cover_letter_html(letter: CoverLetter, config: Config) -> str:
         text_html(config.name),
         *(contact_item_html(*item) for item in signature_items(config)),
     ]
-    signature = f"<p>{'<br>'.join(signature_lines)}</p>"
+    signature = f'<p class="signature">{"<br>".join(signature_lines)}</p>'
     body = (
         header_html(config)
         + f"<h2>{text_html(letter.title)}</h2>"
