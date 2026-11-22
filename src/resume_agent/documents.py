@@ -6,7 +6,10 @@ import yaml
 
 FRONT_MATTER_DELIMITER = "---"
 MONTH_YEAR = r"(0[1-9]|1[0-2])/(\d{4})"
-DATE_RANGE = re.compile(rf"\b{MONTH_YEAR} - (?:{MONTH_YEAR}|present)\b")
+PRESENT = "present"
+DATE_RANGE = re.compile(rf"\b{MONTH_YEAR} - (?:{MONTH_YEAR}|{PRESENT})\b")
+WHOLE_MONTH_YEAR = re.compile(rf"^{MONTH_YEAR}$")
+PLACEHOLDER = re.compile(r"\[[^\]\n]+\]")
 ANY_MONTH_YEAR = re.compile(r"\b\d{1,2}/\d{4}\b")
 FORBIDDEN_DASHES = ("–", "—")
 
@@ -109,6 +112,23 @@ def parse_resume(text: str) -> Resume:
     return Resume(headline=headline, sections=sections)
 
 
+def resume_markdown(resume: Resume) -> str:
+    front_matter = yaml.safe_dump({"headline": resume.headline}, allow_unicode=True, width=1000)
+    lines = [FRONT_MATTER_DELIMITER, front_matter.strip(), FRONT_MATTER_DELIMITER]
+    for section in resume.sections:
+        lines.extend(["", f"## {section.title}"])
+        for role in section.roles:
+            lines.extend(["", f"### {role.title}"])
+            if role.subtitle:
+                lines.append(role.subtitle)
+            lines.extend(f"- {bullet}" for bullet in role.bullets)
+        if section.paragraphs:
+            lines.extend(["", *section.paragraphs])
+        if section.items:
+            lines.extend(["", *(f"- {item}" for item in section.items)])
+    return "\n".join(lines) + "\n"
+
+
 def parse_cover_letter(text: str) -> CoverLetter:
     meta, lines = split_front_matter(text)
     blocks: list[list[str]] = [[]]
@@ -127,6 +147,20 @@ def parse_cover_letter(text: str) -> CoverLetter:
     )
 
 
+def open_placeholders(lines: list[str]) -> list[str]:
+    return [match for line in lines for match in PLACEHOLDER.findall(line)]
+
+
+def parse_month(text: str, today: date | None = None) -> date:
+    value = str(text).strip()
+    if value == PRESENT:
+        return (today or date.today()).replace(day=1)
+    match = WHOLE_MONTH_YEAR.match(value)
+    if not match:
+        raise DocumentError(f"Expected MM/YYYY or {PRESENT!r}, got {value!r}")
+    return date(int(match.group(2)), int(match.group(1)), 1)
+
+
 def date_problems(lines: list[str], today: date | None = None) -> list[str]:
     today = today or date.today()
     problems = []
@@ -141,8 +175,8 @@ def date_problems(lines: list[str], today: date | None = None) -> list[str]:
                 problems.append(f"date not in MM/YYYY - MM/YYYY form: {match.group(0)!r}")
 
         for r in ranges:
-            start = date(int(r.group(2)), int(r.group(1)), 1)
-            end = date(int(r.group(4)), int(r.group(3)), 1) if r.group(3) else today
+            start = parse_month(f"{r.group(1)}/{r.group(2)}")
+            end = parse_month(f"{r.group(3)}/{r.group(4)}") if r.group(3) else today
             if start > end:
                 problems.append(f"range ends before it starts: {r.group(0)!r}")
     return problems

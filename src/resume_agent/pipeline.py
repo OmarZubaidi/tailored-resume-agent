@@ -1,6 +1,11 @@
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import date
+from enum import StrEnum
 from pathlib import Path
+
+from pypdf import PdfReader
 
 from resume_agent.ats import (
     REQUIRED_RESUME_HEADINGS,
@@ -12,14 +17,42 @@ from resume_agent.ats import (
     resume_expected_lines,
 )
 from resume_agent.config import Config
-from resume_agent.documents import parse_cover_letter, parse_resume
+from resume_agent.cover_letter import write_cover_letter
+from resume_agent.documents import (
+    DocumentError,
+    open_placeholders,
+    parse_cover_letter,
+    parse_resume,
+    resume_markdown,
+)
+from resume_agent.guards.rules import DRAFTS_DIR, NOTES_FILE, is_locked
 from resume_agent.job_listing import LISTING_MD, read_listing
-from resume_agent.keywords import coverage_detail, keyword_coverage
+from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
+from resume_agent.ledger import LEDGER_FILE, load_ledger
+from resume_agent.prompts import parse_json_reply, render_prompt
 from resume_agent.render import cover_letter_html, render_pdf, resume_html
+from resume_agent.tailor import (
+    BANK_FILE,
+    apply_plan,
+    bank_markdown,
+    build_bank,
+    diff_markdown,
+    drop_lowest_bullet,
+    ledger_summary,
+)
 
 RESUME_SOURCE = "resume.md"
 COVER_LETTER_SOURCE = "cover-letter.md"
 ATS_REPORT = "ats-report.md"
+DIFF_FILE = "diff.md"
+TAILORING_RULES = "tailoring-rules.md"
+VOICE_FILE = "style/voice.md"
+NO_EXTRA_RULES = "None."
+
+
+class Mode(StrEnum):
+    UPWARD = "upward"
+    LATERAL = "lateral"
 
 
 @dataclass
@@ -38,11 +71,17 @@ def baseline_dir(config: Config, baseline: str) -> Path:
     return config.data_root / "baselines" / baseline
 
 
-def render_folder(folder: Path, config: Config) -> RenderResult:
+def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderResult:
     report = folder / ATS_REPORT
     report.unlink(missing_ok=True)
     resume = parse_resume((folder / RESUME_SOURCE).read_text())
     letter = parse_cover_letter((folder / COVER_LETTER_SOURCE).read_text())
+    placeholders = open_placeholders(resume.text_lines() + letter.text_lines())
+    if placeholders and not draft:
+        raise DocumentError(
+            f"Fill these placeholders before rendering: {', '.join(placeholders)}. "
+            "Use --draft to render a template anyway."
+        )
     resume_pdf = folder / pdf_name(config.name, "Resume")
     letter_pdf = folder / pdf_name(config.name, "Cover-Letter")
 
@@ -71,3 +110,103 @@ def render_folder(folder: Path, config: Config) -> RenderResult:
     )
     passed = all_passed(resume_checks + letter_checks)
     return RenderResult(resume_pdf, letter_pdf, report, passed)
+
+
+@dataclass
+class TailorResult:
+    folder: Path
+    mode: Mode
+    flags: list[str]
+    render: RenderResult
+
+
+def output_folder(folder: Path) -> Path:
+    if not any(is_locked(folder / name) for name in (RESUME_SOURCE, COVER_LETTER_SOURCE)):
+        return folder
+    drafts = folder / DRAFTS_DIR
+    drafts.mkdir(exist_ok=True)
+    (drafts / LISTING_MD).write_text((folder / LISTING_MD).read_text())
+    return drafts
+
+
+def optional_text(path: Path, fallback: str) -> str:
+    return path.read_text().strip() if path.is_file() else fallback
+
+
+def detect_mode(listing_text: str, config: Config) -> Mode:
+    keywords = config.industry_keywords.get(config.home_industry, [])
+    return Mode.UPWARD if any(mentions(term, listing_text) for term in keywords) else Mode.LATERAL
+
+
+def notes_markdown(baseline: str, mode: Mode, config: Config, today: date) -> str:
+    return "\n".join(
+        [
+            "# Notes",
+            "",
+            f"- Tailored: {today.isoformat()}",
+            f"- Baseline: {baseline}",
+            f"- Mode: {mode.value}",
+            f"- Provider: {config.llm.provider.value} ({config.llm.model or 'default model'})",
+            "",
+        ]
+    )
+
+
+def tailor_folder(
+    folder: Path,
+    config: Config,
+    run: Callable[[str], str],
+    baseline: str | None = None,
+    mode: Mode | None = None,
+    today: date | None = None,
+) -> TailorResult:
+    baseline = baseline or config.default_baseline
+    source = baseline_dir(config, baseline)
+    listing = read_listing(folder / LISTING_MD)
+    ledger = load_ledger(source / LEDGER_FILE)
+    baseline_resume = parse_resume((source / RESUME_SOURCE).read_text())
+    bank_path = source / BANK_FILE
+    extra = parse_resume(bank_path.read_text()) if bank_path.is_file() else None
+    bank = build_bank(baseline_resume, extra)
+    mode = mode or detect_mode(listing.text, config)
+
+    prompt = render_prompt(
+        "tailor-resume",
+        mode=mode.value,
+        home_industry=config.home_industry,
+        industry_keywords=", ".join(config.industry_keywords.get(config.home_industry, [])),
+        listing=listing.text,
+        baseline=resume_markdown(baseline_resume),
+        bullet_bank=bank_markdown(bank),
+        ledger=ledger_summary(ledger),
+        tailoring_rules=optional_text(config.data_root / TAILORING_RULES, NO_EXTRA_RULES),
+    )
+    tailored = apply_plan(parse_json_reply(run(prompt)), baseline_resume, bank, ledger)
+    letter = write_cover_letter(
+        run,
+        listing.text,
+        listing.title,
+        resume_markdown(tailored.resume),
+        (source / COVER_LETTER_SOURCE).read_text(),
+        ledger,
+        optional_text(config.data_root / VOICE_FILE, ""),
+    )
+
+    out = output_folder(folder)
+    (out / RESUME_SOURCE).write_text(resume_markdown(tailored.resume))
+    (out / COVER_LETTER_SOURCE).write_text(letter.markdown)
+    render = render_folder(out, config)
+    while page_count(render.resume_pdf) > 1 and drop_lowest_bullet(tailored):
+        (out / RESUME_SOURCE).write_text(resume_markdown(tailored.resume))
+        render = render_folder(out, config)
+    if page_count(render.resume_pdf) > 1:
+        tailored.flags.append("Still over one page after trimming every role to 2 bullets")
+
+    tailored.flags.extend(letter.flags)
+    (out / DIFF_FILE).write_text(diff_markdown(baseline_resume, tailored, bank))
+    (out / NOTES_FILE).write_text(notes_markdown(baseline, mode, config, today or date.today()))
+    return TailorResult(folder=out, mode=mode, flags=tailored.flags, render=render)
+
+
+def page_count(pdf: Path) -> int:
+    return len(PdfReader(str(pdf)).pages)

@@ -5,8 +5,10 @@ import pytest
 from resume_agent.documents import (
     DocumentError,
     date_problems,
+    open_placeholders,
     parse_cover_letter,
     parse_resume,
+    resume_markdown,
 )
 
 RESUME = """---
@@ -111,6 +113,31 @@ def test_cover_letter_title_from_front_matter():
 def test_cover_letter_without_closing_is_rejected():
     with pytest.raises(DocumentError, match="closing"):
         parse_cover_letter("Only one paragraph.\n")
+
+
+def test_resume_markdown_round_trips():
+    resume = parse_resume(RESUME)
+
+    assert parse_resume(resume_markdown(resume)) == resume
+
+
+def test_resume_markdown_quotes_nothing_it_does_not_need_to():
+    text = resume_markdown(parse_resume("---\nheadline: A | B\n---\n## Skills\n- Languages: Go\n"))
+
+    assert text == "---\nheadline: A | B\n---\n\n## Skills\n\n- Languages: Go\n"
+
+
+def test_resume_markdown_quotes_a_headline_yaml_would_misread():
+    resume = parse_resume("## Skills\n- Languages: Go\n")
+    resume.headline = "Engineer: C# | .NET #1"
+
+    assert parse_resume(resume_markdown(resume)).headline == "Engineer: C# | .NET #1"
+
+
+def test_open_placeholders():
+    lines = ["Dear [Hiring Manager's Name],", "Built (fast) things.", "I like [Company Name]."]
+
+    assert open_placeholders(lines) == ["[Hiring Manager's Name]", "[Company Name]"]
 
 
 def test_valid_dates_have_no_problems():

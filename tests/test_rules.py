@@ -20,10 +20,9 @@ def config(config_data) -> Config:
     return Config(**config_data)
 
 
-def test_providers_are_subscription_or_local_only():
+def test_providers_cannot_read_files_or_bill_per_use():
     assert {provider.value for provider in Provider} == {
         "claude-code",
-        "codex",
         "ollama",
         "lmstudio",
     }

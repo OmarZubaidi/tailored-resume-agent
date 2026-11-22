@@ -1,0 +1,138 @@
+from datetime import date
+
+import pytest
+
+from resume_agent.cover_letter import (
+    WORD_ALLOWANCE,
+    style_problems,
+    template_body,
+    write_cover_letter,
+    years_in_words,
+)
+from resume_agent.documents import DocumentError
+from resume_agent.ledger import load_ledger
+from resume_agent.validation import word_count
+
+TEMPLATE = """---
+title: Cover Letter
+---
+
+Dear [Hiring Manager's Name],
+
+Over the past three years, I've built things at [Company Name].
+
+Best,
+"""
+LETTER = """Dear Hiring Team,
+
+Over the past five years at Acme, I've built things for Globex.
+
+Best,"""
+
+
+@pytest.fixture
+def ledger(tmp_path):
+    path = tmp_path / "skills-ledger.yaml"
+    path.write_text("roles:\n  Acme:\n    from: 05/2021\n    to: present\n")
+    return load_ledger(path, date(2026, 11, 21))
+
+
+def scripted(*replies: str):
+    queue = list(replies)
+    prompts: list[str] = []
+
+    def run(prompt: str) -> str:
+        prompts.append(prompt)
+        return queue.pop(0)
+
+    return run, prompts
+
+
+def generate(run, ledger):
+    return write_cover_letter(run, "LISTING", "Engineer", "RESUME", TEMPLATE, ledger)
+
+
+@pytest.mark.parametrize(
+    ("months", "words"),
+    [
+        (11, "zero"),
+        (66, "five"),
+        (12 * 25, "25"),
+    ],
+)
+def test_years_in_words(months, words):
+    assert years_in_words(months) == words
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ("I am genuinely excited.", "uses the word 'genuinely'"),
+        ("Honestly, I love APIs.", "uses the word 'Honestly'"),
+        ("It's not just code, it's craft.", "uses contrast framing"),
+        ("It's not about speed, it's about care.", "uses contrast framing"),
+        ("I bring not only skill, but grit.", "uses contrast framing"),
+        ("Built it fast — and well.", "uses an en or em dash"),
+        ("I like [Company Name].", "leaves the placeholder [Company Name]"),
+    ],
+)
+def test_style_problems(text, problem):
+    assert any(problem in found for found in style_problems(text)), style_problems(text)
+
+
+def test_plain_writing_has_no_style_problems():
+    assert style_problems("I'm not sure, but I built a fax (yes, that fax!) REST API.") == []
+
+
+def test_generated_letter(ledger):
+    run, prompts = scripted(LETTER)
+
+    generated = generate(run, ledger)
+
+    assert len(prompts) == 1
+    assert "five" in prompts[0]
+    assert "Treat the template as a suggestion" in prompts[0]
+    assert '"genuinely"' in prompts[0]
+    assert "Dear [Hiring Manager's Name]," in prompts[0]
+    assert "title: Cover Letter" not in prompts[0]
+    assert generated.letter.closing == "Best,"
+    assert generated.markdown.startswith("---\ntitle: Cover Letter\n---\n\nDear Hiring Team,")
+    assert generated.flags == [f"Years: {LETTER.splitlines()[2]}"]
+
+
+def test_llm_verbiage_gets_one_revision(ledger):
+    draft = "Dear team,\n\nI am genuinely thrilled — truly.\n\nBest,"
+    run, prompts = scripted(draft, LETTER)
+
+    generated = generate(run, ledger)
+
+    assert "Your draft below breaks these rules:" in prompts[1]
+    assert "- uses the word 'genuinely'" in prompts[1]
+    assert "- uses an en or em dash" in prompts[1]
+    assert generated.letter.paragraphs[0] == "Dear Hiring Team,"
+
+
+def test_long_draft_gets_one_revision(ledger):
+    run, prompts = scripted("Dear team,\n\n" + "word " * 60 + "\n\nBest,", LETTER)
+
+    generate(run, ledger)
+
+    cap = round(word_count(template_body(TEMPLATE)) * WORD_ALLOWANCE)
+    assert f"under {cap} words" in prompts[0]
+    assert f"- is 63 words; the limit is {cap}" in prompts[1]
+
+
+def test_verbiage_that_survives_revision_fails(ledger):
+    stubborn = "Dear team,\n\nIt's not just code, it's craft.\n\nBest,"
+    run, _ = scripted(stubborn, stubborn)
+
+    with pytest.raises(DocumentError, match="Cover letter still uses contrast framing"):
+        generate(run, ledger)
+
+
+def test_leftover_placeholder_fails_after_revision(ledger):
+    placeholder = "Dear team,\n\nI like [Company Name].\n\nBest,"
+    run, _ = scripted(placeholder, placeholder)
+
+    with pytest.raises(DocumentError, match=r"leaves the placeholder \[Company Name\]"):
+        generate(run, ledger)
