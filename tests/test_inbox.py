@@ -198,4 +198,34 @@ def test_inbox_command_lists_flagged_jobs(config, calls, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "00001  Globex - Platform Engineer: Clearance:" in result.output
-    assert "resume_agent review <ID> proceed|drop" in result.output
+    assert "resume_agent review proceed|drop <ID>..." in result.output
+
+
+def test_review_proceed_tailors_and_drop_skips(config, calls, monkeypatch):
+    monkeypatch.setattr(cli, "run_prompt", lambda _, prompt: fake_llm(prompt))
+    other = "https://jobs.example.com/globex/3"
+    staff = ("Globex", "Staff Engineer", "Remote. TS/SCI clearance required.")
+    monkeypatch.setitem(LISTINGS, other, staff)
+    run(Tracker(inbox=[InboxRow(url=FLAGGED_URL), InboxRow(url=other)]), config)
+
+    proceed = CliRunner().invoke(app, ["review", "proceed", "1"])
+    drop = CliRunner().invoke(app, ["review", "drop", "2"])
+
+    assert proceed.exit_code == 0, proceed.output
+    assert "Interested: 00001  Globex - Platform Engineer" in proceed.output
+    assert drop.exit_code == 0, drop.output
+    assert "Skipped: 00002  Globex - Staff Engineer" in drop.output
+    saved = load_tracker(workbook_path(config.data_root))
+    assert saved.inbox == []
+    assert [app.status for app in saved.applications] == ["Interested", "Skipped"]
+    skipped_folder = config.data_root / "applications" / saved.applications[1].folder
+    assert (skipped_folder / "timeline.md").read_text().endswith("- 2026-11-21 Skipped\n")
+
+
+def test_review_rejects_ids_that_are_not_flagged(config, calls):
+    save_tracker(Tracker(inbox=[InboxRow(url=CLEAR_URL)]), config)
+
+    result = CliRunner().invoke(app, ["review", "drop", "7"])
+
+    assert result.exit_code == 1
+    assert "No flagged Inbox row with ID 00007" in result.output

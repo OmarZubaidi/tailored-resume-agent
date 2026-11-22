@@ -12,7 +12,7 @@ from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
-from resume_agent.inbox import process_inbox
+from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.ledger import LedgerError
 from resume_agent.llm import LlmError, run_prompt
@@ -213,16 +213,45 @@ def inbox() -> None:
     except (GuardError, TrackerError) as error:
         typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
         raise typer.Exit(1) from error
+    echo_inbox_result(result)
 
+
+@app.command("review")
+def review(
+    decision: Annotated[Decision, typer.Argument(help="proceed tailors, drop marks Skipped.")],
+    application_ids: Annotated[list[int], typer.Argument(help="IDs from the flagged list.")],
+) -> None:
+    """Proceed with or drop flagged Inbox jobs."""
+    config = load_config_or_exit()
+    path = workbook_path(config.data_root)
+    try:
+        ensure_excel_closed(path)
+        tracker = load_tracker(path)
+        result = review_rows(
+            tracker,
+            application_ids,
+            decision,
+            config,
+            llm_runner(config),
+            date.today(),
+            save=lambda: save_tracker(tracker, config),
+        )
+    except (GuardError, InboxError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    echo_inbox_result(result)
+
+
+def echo_inbox_result(result: InboxResult) -> None:
     for application in result.tailored:
         suffix = f" ({application.notes})" if application.notes else ""
-        typer.echo(f"Tailored {pick_line(application)}{suffix}")
+        typer.echo(f"{application.status}: {pick_line(application)}{suffix}")
     for row in result.failed:
         typer.echo(f"Failed {row.url}: {row.reason}", err=True)
     if result.flagged:
         lines = "\n".join(flagged_line(row) for row in result.flagged)
         typer.echo(f"Flagged, waiting for your review:\n{lines}")
-        typer.echo("Decide each with: resume_agent review <ID> proceed|drop")
+        typer.echo("Decide with: resume_agent review proceed|drop <ID>...")
     if result.failed:
         raise typer.Exit(1)
 

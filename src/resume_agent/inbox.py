@@ -1,11 +1,13 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 
 from resume_agent.application_folder import (
     add_timeline_event,
     folder_name,
+    format_id,
     move_folder,
     next_id,
 )
@@ -20,7 +22,7 @@ from resume_agent.pipeline import Mode, baseline_dir, tailor_folder, triage_fold
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.tailor import TailorError
-from resume_agent.tracker import MODES, Application, InboxRow, Tracker
+from resume_agent.tracker import MODES, Application, InboxRow, Stage, Tracker
 from resume_agent.validation import resolve_listing
 
 FLAGGED = "flagged"
@@ -31,6 +33,11 @@ STAGING_DIR = Path(".state/inbox")
 
 class InboxError(Exception):
     pass
+
+
+class Decision(StrEnum):
+    PROCEED = "proceed"
+    DROP = "drop"
 
 
 ROW_ERRORS = (
@@ -52,6 +59,12 @@ class InboxResult:
     tailored: list[Application] = field(default_factory=list)
     flagged: list[InboxRow] = field(default_factory=list)
     failed: list[InboxRow] = field(default_factory=list)
+
+
+def fail_row(row: InboxRow, error: Exception, result: InboxResult) -> None:
+    row.status = FAILED
+    row.reason = str(error)
+    result.failed.append(row)
 
 
 def check_row(row: InboxRow, config: Config) -> None:
@@ -126,6 +139,53 @@ def tailor_row(
     return application
 
 
+def skip_row(row: InboxRow, tracker: Tracker, config: Config, today: date) -> Application:
+    application = Application(
+        id=row.id,
+        company=row.company,
+        role=row.role,
+        link=row.url,
+        folder=row.folder,
+        mode=row.mode,
+        baseline=row.baseline,
+        notes=row.reason,
+        stages={Stage.SKIPPED: today},
+    )
+    add_timeline_event(config.data_root / APPLICATIONS_DIR / row.folder, today, "Skipped")
+    move_to_applications(row, application, tracker)
+    return application
+
+
+def flagged_row(tracker: Tracker, application_id: int) -> InboxRow:
+    row = next((row for row in tracker.inbox if row.id == application_id), None)
+    if row is None or row.status != FLAGGED:
+        raise InboxError(f"No flagged Inbox row with ID {format_id(application_id)}")
+    return row
+
+
+def review_rows(
+    tracker: Tracker,
+    application_ids: list[int],
+    decision: Decision,
+    config: Config,
+    run: Callable[[str], str],
+    today: date,
+    save: Callable[[], None],
+) -> InboxResult:
+    rows = [flagged_row(tracker, application_id) for application_id in application_ids]
+    result = InboxResult()
+    for row in rows:
+        if decision == Decision.DROP:
+            result.tailored.append(skip_row(row, tracker, config, today))
+        else:
+            try:
+                result.tailored.append(tailor_row(row, tracker, config, run, today))
+            except ROW_ERRORS as error:
+                fail_row(row, error, result)
+        save()
+    return result
+
+
 def move_to_applications(row: InboxRow, application: Application, tracker: Tracker) -> None:
     tracker.inbox.remove(row)
     tracker.applications.append(application)
@@ -150,9 +210,7 @@ def process_inbox(
             if row.status != FLAGGED:
                 result.tailored.append(tailor_row(row, tracker, config, run, today))
         except ROW_ERRORS as error:
-            row.status = FAILED
-            row.reason = str(error)
-            result.failed.append(row)
+            fail_row(row, error, result)
         save()
     result.flagged = [row for row in tracker.inbox if row.status == FLAGGED]
     return result
