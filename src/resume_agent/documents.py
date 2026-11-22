@@ -112,6 +112,23 @@ def parse_resume(text: str) -> Resume:
     return Resume(headline=headline, sections=sections)
 
 
+def resume_markdown(resume: Resume) -> str:
+    front_matter = yaml.safe_dump({"headline": resume.headline}, allow_unicode=True, width=1000)
+    lines = [FRONT_MATTER_DELIMITER, front_matter.strip(), FRONT_MATTER_DELIMITER]
+    for section in resume.sections:
+        lines.extend(["", f"## {section.title}"])
+        for role in section.roles:
+            lines.extend(["", f"### {role.title}"])
+            if role.subtitle:
+                lines.append(role.subtitle)
+            lines.extend(f"- {bullet}" for bullet in role.bullets)
+        if section.paragraphs:
+            lines.extend(["", *section.paragraphs])
+        if section.items:
+            lines.extend(["", *(f"- {item}" for item in section.items)])
+    return "\n".join(lines) + "\n"
+
+
 def parse_cover_letter(text: str) -> CoverLetter:
     meta, lines = split_front_matter(text)
     blocks: list[list[str]] = [[]]
