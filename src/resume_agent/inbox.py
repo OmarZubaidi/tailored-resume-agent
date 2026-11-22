@@ -13,7 +13,7 @@ from resume_agent.application_folder import (
     next_id,
 )
 from resume_agent.config import Config
-from resume_agent.data_root import APPLICATIONS_DIR
+from resume_agent.data_root import APPLICATIONS_DIR, STATE_DIR
 from resume_agent.job_listing import ListingError, fetch_listing
 from resume_agent.pipeline import TAILOR_ERRORS, Mode, baseline_dir, tailor_folder, triage_folder
 from resume_agent.tracker import MODES, Application, InboxRow, Stage, Tracker
@@ -22,7 +22,7 @@ from resume_agent.validation import resolve_listing
 FLAGGED = "flagged"
 FAILED = "error"
 PENDING_STATUSES = ("", FAILED)
-STAGING_DIR = Path(".state/inbox")
+STAGING_DIR = Path(STATE_DIR, "inbox")
 
 
 class InboxError(Exception):

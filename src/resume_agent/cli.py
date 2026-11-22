@@ -11,12 +11,19 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.gmail import GmailError
+from resume_agent.email_scan import (
+    ScanError,
+    describe_update,
+    notification,
+    notify,
+    scan_mailbox,
+)
+from resume_agent.gmail import GmailError, open_mailbox
 from resume_agent.gmail import login as gmail_sign_in
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.llm import run_prompt
+from resume_agent.llm import LlmError, run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
     TAILOR_ERRORS,
@@ -27,6 +34,7 @@ from resume_agent.pipeline import (
     tailor_folder,
     triage_folder,
 )
+from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.stages import (
     Ambiguous,
@@ -334,6 +342,30 @@ def gmail_login(
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
     typer.echo(f"Signed in to Gmail as {account}. The token is in the Keychain.")
+
+
+SCAN_ERRORS = (GmailError, LlmError, PromptError, ScanError, StageError, TrackerError)
+
+
+@gmail_app.command("scan")
+def gmail_scan() -> None:
+    """Classify new application emails and queue proposed stage updates for review."""
+    config = load_config_or_exit()
+    try:
+        mailbox = open_mailbox(config)
+        tracker = load_tracker(workbook_path(config.data_root))
+        variants = load_variants(config.data_root)
+        run = llm_runner(config)
+        added = scan_mailbox(mailbox, tracker, variants, run, config.data_root, datetime.now())
+    except SCAN_ERRORS as error:
+        typer.echo(str(error), err=True)
+        summary = str(error).partition("\n")[0]
+        notify(f"Gmail scan failed: {summary}")
+        raise typer.Exit(1) from error
+    for update in added:
+        typer.echo(describe_update(update, tracker))
+    if added:
+        notify(notification(added))
 
 
 @dev_app.command("install-hooks")

@@ -5,11 +5,12 @@ from pathlib import Path
 SF_DATALESS = 0x40000000
 BASELINES_DIR = "baselines"
 APPLICATIONS_DIR = "applications"
+STATE_DIR = ".state"
 DATA_DIRS = (
     Path(BASELINES_DIR, "general"),
     Path("style/samples"),
     Path(APPLICATIONS_DIR),
-    Path(".state"),
+    Path(STATE_DIR),
 )
 
 
