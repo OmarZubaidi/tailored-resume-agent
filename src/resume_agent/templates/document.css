@@ -120,9 +120,9 @@ li::before {
 }
 
 .letter p {
-  margin-top: 6pt;
+  margin-top: 9pt;
 }
 
 .letter p:first-child {
-  margin-top: 16pt;
+  margin-top: 26pt;
 }

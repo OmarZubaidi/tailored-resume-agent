@@ -30,11 +30,17 @@ def text_html(text: str) -> str:
     return REGULAR_SPACE.join(escape(part) for part in text.split(" "))
 
 
-def contact_items(config: Config) -> list[tuple[str, str | None]]:
+def signature_items(config: Config) -> list[tuple[str, str | None]]:
     return [
         (config.email, f"mailto:{config.email}"),
         (config.phone, None),
         (config.location, None),
+    ]
+
+
+def contact_items(config: Config) -> list[tuple[str, str | None]]:
+    return [
+        *signature_items(config),
         (config.links.github, f"https://{config.links.github}"),
         (config.links.linkedin, f"https://{config.links.linkedin}"),
     ]
@@ -115,7 +121,7 @@ def cover_letter_html(letter: CoverLetter, config: Config) -> str:
     signature_lines = [
         text_html(letter.closing),
         text_html(config.name),
-        *(contact_item_html(*item) for item in contact_items(config)),
+        *(contact_item_html(*item) for item in signature_items(config)),
     ]
     signature = f"<p>{'<br>'.join(signature_lines)}</p>"
     body = (

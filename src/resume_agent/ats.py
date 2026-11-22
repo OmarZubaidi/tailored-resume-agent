@@ -7,7 +7,7 @@ from pypdf import PdfReader
 
 from resume_agent.config import Config
 from resume_agent.documents import CoverLetter, Resume, date_problems
-from resume_agent.render import CONTACT_SEPARATOR_TEXT, contact_items
+from resume_agent.render import CONTACT_SEPARATOR_TEXT, contact_items, signature_items
 
 REQUIRED_RESUME_HEADINGS = ("Experience", "Education", "Skills")
 LAYOUT_MARKERS = {"-", CONTACT_SEPARATOR_TEXT}
@@ -30,13 +30,12 @@ def resume_expected_lines(resume: Resume, config: Config) -> list[str]:
 
 
 def cover_letter_expected_lines(letter: CoverLetter, config: Config) -> list[str]:
-    contact = [text for text, _ in contact_items(config)]
     return [
         config.name,
-        *contact,
+        *(text for text, _ in contact_items(config)),
         *letter.text_lines(),
         config.name,
-        *contact,
+        *(text for text, _ in signature_items(config)),
     ]
 
 
