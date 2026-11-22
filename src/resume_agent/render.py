@@ -2,6 +2,7 @@ from html import escape
 from importlib.resources import files
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from resume_agent.config import Config
@@ -141,7 +142,10 @@ def cover_letter_html(letter: CoverLetter, config: Config) -> str:
 
 def render_pdf(html: str, output: Path) -> None:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(channel="chrome")
+        try:
+            browser = playwright.chromium.launch(channel="chrome")
+        except PlaywrightError as error:
+            raise RenderError(f"Could not start Google Chrome: {error.message}") from error
         try:
             page = browser.new_page(
                 viewport={

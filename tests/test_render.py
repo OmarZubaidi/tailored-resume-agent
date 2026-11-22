@@ -3,6 +3,7 @@ from html import escape
 from pathlib import Path
 
 import pytest
+from playwright.sync_api import Error as PlaywrightError
 
 from resume_agent.config import Config
 from resume_agent.documents import parse_cover_letter, parse_resume
@@ -110,6 +111,26 @@ def test_cover_letter_html_has_signature_block(config):
     assert f"<br>{escape(config.location)}</p>" in signature
     assert "github" not in signature
     assert "linkedin" not in signature
+
+
+def test_chrome_launch_failure_is_a_render_error(monkeypatch, tmp_path):
+    class FailingChromium:
+        def launch(self, **_):
+            raise PlaywrightError("Chromium distribution 'chrome' is not found")
+
+    class FakePlaywright:
+        chromium = FailingChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr("resume_agent.render.sync_playwright", FakePlaywright)
+
+    with pytest.raises(RenderError, match="Could not start Google Chrome"):
+        render_pdf("<p>x</p>", tmp_path / "x.pdf")
 
 
 @needs_chrome
