@@ -211,6 +211,7 @@ class InboxRow:
 class Tracker:
     applications: list[Application] = field(default_factory=list)
     inbox: list[InboxRow] = field(default_factory=list)
+    loaded_version: int | None = field(default=None, compare=False)
 
 
 def status_formula(row: int) -> str:
@@ -437,6 +438,11 @@ def ignore_formula_errors(path: Path) -> None:
 def save_tracker(tracker: Tracker, config: Config, today: date | None = None) -> Path:
     path = workbook_path(config.data_root)
     ensure_excel_closed(path)
+    if tracker.loaded_version is not None and path.stat().st_mtime_ns != tracker.loaded_version:
+        raise TrackerError(
+            f"{path.name} changed since it was loaded, probably edited in Excel. "
+            "Rerun to pick up the changes."
+        )
     workbook = new_workbook(config.excel_template)
     write_inbox(workbook.create_sheet(INBOX_SHEET), tracker.inbox, baseline_names(config.data_root))
     write_applications(workbook.create_sheet(APPLICATIONS_SHEET), tracker.applications)
@@ -451,6 +457,7 @@ def save_tracker(tracker: Tracker, config: Config, today: date | None = None) ->
     workbook.save(partial)
     ignore_formula_errors(partial)
     os.replace(partial, path)
+    tracker.loaded_version = path.stat().st_mtime_ns
     return path
 
 
@@ -538,6 +545,7 @@ def read_inbox_row(number: int, record: dict) -> InboxRow:
 def load_tracker(path: Path) -> Tracker:
     if not path.is_file():
         raise TrackerError(f"No workbook at {path}. Run `resume_agent init`.")
+    loaded_version = path.stat().st_mtime_ns
     workbook = load_workbook(path)
     return Tracker(
         applications=[
@@ -548,6 +556,7 @@ def load_tracker(path: Path) -> Tracker:
             read_inbox_row(number, record)
             for number, record in sheet_rows(workbook, INBOX_SHEET, INBOX)
         ],
+        loaded_version=loaded_version,
     )
 
 

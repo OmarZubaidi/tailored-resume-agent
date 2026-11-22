@@ -203,6 +203,17 @@ def test_save_refuses_while_open_in_excel(config, path):
         save_tracker(Tracker(), config, TODAY)
 
 
+def test_save_refuses_a_workbook_changed_since_load(config, path, saved):
+    tracker = load_tracker(path)
+    save_tracker(tracker, config, TODAY)
+    workbook = load_workbook(path)
+    workbook[INBOX_SHEET]["A3"] = "https://jobs.example.com/added-in-excel"
+    workbook.save(path)
+
+    with pytest.raises(TrackerError, match="changed since it was loaded"):
+        save_tracker(tracker, config, TODAY)
+
+
 def test_missing_template(config_data, data_root, tmp_path):
     config = Config(**{**config_data, "excel_template": str(tmp_path / "missing.xltx")})
 
