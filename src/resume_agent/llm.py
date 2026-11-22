@@ -70,7 +70,9 @@ def run_cli(command: list[str], prompt: str) -> str:
     except subprocess.TimeoutExpired as error:
         raise LlmError(f"{Path(command[0]).name} timed out after {TIMEOUT_SECONDS}s") from error
     if result.returncode != 0:
-        raise LlmError(f"{Path(command[0]).name} failed: {result.stderr.strip() or result.stdout}")
+        output = "\n".join(text for text in (result.stdout.strip(), result.stderr.strip()) if text)
+        reason = output or f"exit code {result.returncode}"
+        raise LlmError(f"{Path(command[0]).name} failed: {reason}")
     return result.stdout.strip()
 
 
