@@ -42,11 +42,15 @@ def is_locked(path: Path) -> bool:
     return path.exists() and not path.stat().st_mode & WRITE_BITS
 
 
-def lock_applied_files(folder: Path, names: list[str], today: date | None = None) -> None:
-    today = today or date.today()
+def require_files(folder: Path, names: list[str]) -> None:
     missing = [name for name in names if not (folder / name).is_file()]
     if missing:
         raise GuardError(f"Cannot lock, missing in {folder.name}: {', '.join(missing)}")
+
+
+def lock_applied_files(folder: Path, names: list[str], today: date | None = None) -> None:
+    today = today or date.today()
+    require_files(folder, names)
 
     lines = []
     for name in names:

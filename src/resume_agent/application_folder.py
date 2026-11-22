@@ -3,7 +3,7 @@ from datetime import date
 from pathlib import Path
 
 from resume_agent.data_root import APPLICATIONS_DIR
-from resume_agent.tracker import ID_DIGITS, Tracker
+from resume_agent.tracker import ID_DIGITS, Application, Tracker
 
 TIMELINE_FILE = "timeline.md"
 TIMELINE_HEADING = "# Timeline\n\n"
@@ -35,6 +35,13 @@ def create_folder(data_root: Path, name: str) -> Path:
     folder = data_root / APPLICATIONS_DIR / name
     folder.mkdir(parents=True, exist_ok=False)
     return folder
+
+
+def application_dir(data_root: Path, application: Application) -> Path | None:
+    if not application.folder:
+        return None
+    folder = data_root / APPLICATIONS_DIR / application.folder
+    return folder if folder.is_dir() else None
 
 
 def add_timeline_event(folder: Path, day: date, event: str) -> None:

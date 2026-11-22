@@ -5,15 +5,23 @@ from typing import Annotated
 
 import typer
 
+from resume_agent.application_folder import application_dir
 from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.guards.rules import GuardError
+from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.ledger import LEDGER_FILE, LedgerError
 from resume_agent.llm import LlmError, run_prompt
-from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, tailor_folder
+from resume_agent.pipeline import (
+    DIFF_FILE,
+    Mode,
+    baseline_dir,
+    lock_application,
+    render_folder,
+    tailor_folder,
+)
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.stages import (
@@ -194,14 +202,36 @@ def update(
     application_id: Annotated[
         int | None, typer.Option("--id", help="Application ID from the pick list.")
     ] = None,
+    resume_file: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Applied with this resume PDF instead."),
+    ] = None,
+    letter_file: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Applied with this cover letter instead."),
+    ] = None,
 ) -> None:
-    """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application."""
+    """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application.
+
+    Applied locks the resume and cover letter in the application folder.
+    """
+    if (resume_file or letter_file) and stage != Stage.APPLIED:
+        typer.echo("--resume-file and --letter-file only go with Applied.", err=True)
+        raise typer.Exit(1)
     config = load_config_or_exit()
+    ats_passed = None
     try:
-        tracker = load_tracker(workbook_path(config.data_root))
+        path = workbook_path(config.data_root)
+        ensure_excel_closed(path)
+        tracker = load_tracker(path)
         variants = load_variants(config.data_root)
         application = find_application(tracker, company, variants, title, application_id)
         stage_day = day.date() if day else date.today()
+        folder = application_dir(config.data_root, application)
+        if stage == Stage.APPLIED and folder:
+            ats_passed = lock_application(folder, config, stage_day, resume_file, letter_file)
+        elif resume_file or letter_file:
+            raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
         record_stage(application, stage, stage_day, config.data_root, note)
         save_tracker(tracker, config)
     except Ambiguous as ambiguous:
@@ -209,11 +239,15 @@ def update(
         typer.echo(f"Several open applications match {company}:\n{lines}", err=True)
         typer.echo("Rerun with --id <ID>.", err=True)
         raise typer.Exit(1) from ambiguous
-    except (GuardError, StageError, TrackerError) as error:
+    except (DocumentError, GuardError, StageError, TrackerError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 
     typer.echo(f"{pick_line(application)}: {stage.value} {stage_day}")
+    if ats_passed is not None:
+        typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
+    elif stage == Stage.APPLIED:
+        typer.echo("No application folder, so no files were locked.", err=True)
 
 
 @dev_app.command("install-hooks")

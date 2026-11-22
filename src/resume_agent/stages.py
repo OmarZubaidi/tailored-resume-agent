@@ -5,8 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from resume_agent.application_folder import add_timeline_event, format_id
-from resume_agent.data_root import APPLICATIONS_DIR
+from resume_agent.application_folder import add_timeline_event, application_dir, format_id
 from resume_agent.tracker import Application, Stage, Tracker
 
 COMPANIES_FILE = "companies.yaml"
@@ -129,8 +128,6 @@ def record_stage(
     note: str | None = None,
 ) -> None:
     application.stages[stage] = day
-    if not application.folder:
-        return
-    folder = data_root / APPLICATIONS_DIR / application.folder
-    if folder.is_dir():
+    folder = application_dir(data_root, application)
+    if folder:
         add_timeline_event(folder, day, f"{stage.value}: {note}" if note else stage.value)
