@@ -1,4 +1,5 @@
 import subprocess
+from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
@@ -12,7 +13,7 @@ from resume_agent.data_root import dataless_paths, dataless_warning, init_data_r
 from resume_agent.documents import DocumentError
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
-from resume_agent.ledger import LEDGER_FILE, LedgerError
+from resume_agent.ledger import LedgerError
 from resume_agent.llm import LlmError, run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
@@ -21,6 +22,7 @@ from resume_agent.pipeline import (
     lock_application,
     render_folder,
     tailor_folder,
+    triage_folder,
 )
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
@@ -41,7 +43,7 @@ from resume_agent.tracker import (
     save_tracker,
     workbook_path,
 )
-from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
+from resume_agent.triage import TRIAGE_MD
 from resume_agent.validation import resolve_listing
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
@@ -64,6 +66,10 @@ def load_config_or_exit() -> Config:
     except ConfigError as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
+
+
+def llm_runner(config: Config) -> Callable[[str], str]:
+    return lambda prompt: run_prompt(config, prompt)
 
 
 @config_app.command("check")
@@ -142,10 +148,7 @@ def fetch(
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
 
-    triage = triage_listing(listing, config)
-    ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
-    add_fit(triage, listing.text, ledger_path, lambda prompt: run_prompt(config, prompt))
-    (out_dir / TRIAGE_MD).write_text(triage.markdown())
+    triage = triage_folder(listing, out_dir, config, llm_runner(config), baseline)
     typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
     typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")
 
@@ -163,9 +166,7 @@ def tailor(
     """Tailor the resume and cover letter to a listing, then render them."""
     config = load_config_or_exit()
     try:
-        result = tailor_folder(
-            folder, config, lambda prompt: run_prompt(config, prompt), baseline, mode
-        )
+        result = tailor_folder(folder, config, llm_runner(config), baseline, mode)
     except (
         BrowserError,
         DocumentError,

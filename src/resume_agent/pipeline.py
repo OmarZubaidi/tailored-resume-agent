@@ -35,7 +35,7 @@ from resume_agent.guards.rules import (
     lock_applied_files,
     require_files,
 )
-from resume_agent.job_listing import LISTING_MD, read_listing
+from resume_agent.job_listing import LISTING_MD, Listing, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
 from resume_agent.ledger import LEDGER_FILE, load_ledger
 from resume_agent.prompts import parse_json_reply, render_prompt
@@ -49,6 +49,7 @@ from resume_agent.tailor import (
     drop_lowest_bullet,
     ledger_summary,
 )
+from resume_agent.triage import TRIAGE_MD, Triage, add_fit, triage_listing
 
 RESUME_DOCUMENT = "Resume"
 COVER_LETTER_DOCUMENT = "Cover-Letter"
@@ -80,6 +81,20 @@ def pdf_name(person: str, document: str) -> str:
 
 def baseline_dir(config: Config, baseline: str) -> Path:
     return config.data_root / BASELINES_DIR / baseline
+
+
+def triage_folder(
+    listing: Listing,
+    folder: Path,
+    config: Config,
+    run: Callable[[str], str],
+    baseline: str | None = None,
+) -> Triage:
+    triage = triage_listing(listing, config)
+    ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
+    add_fit(triage, listing.text, ledger_path, run)
+    (folder / TRIAGE_MD).write_text(triage.markdown())
+    return triage
 
 
 def render_folder(folder: Path, config: Config, draft: bool = False) -> RenderResult:
