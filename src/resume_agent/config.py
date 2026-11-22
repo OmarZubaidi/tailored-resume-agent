@@ -20,7 +20,6 @@ class ConfigError(Exception):
 
 class Provider(StrEnum):
     CLAUDE_CODE = "claude-code"
-    CODEX = "codex"
     OLLAMA = "ollama"
     LMSTUDIO = "lmstudio"
 

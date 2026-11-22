@@ -59,6 +59,15 @@ def test_non_mapping_yaml(tmp_path):
         ),
         (
             {
+                "llm": {
+                    "provider": "codex",
+                    "model": None,
+                },
+            },
+            "llm.provider",
+        ),
+        (
+            {
                 "email": "not-an-email",
             },
             "not a valid email address",

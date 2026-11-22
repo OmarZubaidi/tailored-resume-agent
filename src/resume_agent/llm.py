@@ -96,11 +96,6 @@ def claude_code(prompt: str, model: str | None) -> str:
     return run_cli(command + (["--model", model] if model else []), prompt)
 
 
-def codex(prompt: str, model: str | None) -> str:
-    command = ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only"]
-    return run_cli(command + (["--model", model] if model else []) + ["-"], prompt)
-
-
 def reply_field(reply: dict, *path: str | int) -> str:
     try:
         for key in path:
@@ -137,7 +132,6 @@ def lmstudio(prompt: str, model: str | None) -> str:
 
 PROVIDERS: dict[Provider, Callable[[str, str | None], str]] = {
     Provider.CLAUDE_CODE: claude_code,
-    Provider.CODEX: codex,
     Provider.OLLAMA: ollama,
     Provider.LMSTUDIO: lmstudio,
 }

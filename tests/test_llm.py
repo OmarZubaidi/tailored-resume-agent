@@ -104,14 +104,15 @@ def test_cli_providers_drop_pay_per_use_keys(monkeypatch, config_data):
 
 
 def test_cli_failure_is_an_llm_error(monkeypatch, config_data):
+    monkeypatch.setattr(llm, "find_claude", lambda: Path("/bin/claude"))
     monkeypatch.setattr(
         llm.subprocess,
         "run",
         lambda command, **_: subprocess.CompletedProcess(command, 1, stdout="", stderr="limit"),
     )
 
-    with pytest.raises(LlmError, match="codex failed: limit"):
-        run_prompt(config_with(config_data, Provider.CODEX), "Hi")
+    with pytest.raises(LlmError, match="claude failed: limit"):
+        run_prompt(config_with(config_data, Provider.CLAUDE_CODE), "Hi")
 
 
 def test_ollama_requires_model(config_data):
