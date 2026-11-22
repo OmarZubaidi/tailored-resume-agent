@@ -113,7 +113,7 @@ def test_generated_letter(ledger):
 
     assert len(prompts) == 1
     assert "five" in prompts[0]
-    assert "Treat the template as a suggestion" in prompts[0]
+    assert "as a suggestion of shape and tone" in prompts[0]
     assert '"genuinely"' in prompts[0]
     assert "Dear [Hiring Manager's Name]," in prompts[0]
     assert "title: Cover Letter" not in prompts[0]
