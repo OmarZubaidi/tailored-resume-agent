@@ -103,6 +103,37 @@ def test_invalid_fields(config_data, write_config, change, message):
         load_config()
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        "data_root",
+        "default_baseline",
+        "apply_on_my_behalf",
+        "email_scan_hours",
+        "llm",
+    ],
+)
+def test_every_key_is_required(config_data, write_config, key):
+    write_config({name: value for name, value in config_data.items() if name != key})
+
+    with pytest.raises(ConfigError, match=rf"{key}: missing; add it to config.yaml"):
+        load_config()
+
+
+def test_llm_model_key_is_required_but_may_be_null(config_data, write_config):
+    write_config(
+        {
+            **config_data,
+            "llm": {
+                "provider": "ollama",
+            },
+        }
+    )
+
+    with pytest.raises(ConfigError, match="llm.model: missing"):
+        load_config()
+
+
 def test_glob_with_no_match(tmp_path):
     with pytest.raises(ValueError, match="found: none"):
         resolve_data_root(str(tmp_path / "ProtonDrive-*" / "Data"))

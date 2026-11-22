@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 CONFIG_PATH_ENV = "RESUME_AGENT_CONFIG"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
-DEFAULT_DATA_ROOT = "~/Library/CloudStorage/ProtonDrive-*/2 Need/Career/Resume Agent Data"
+MISSING_KEY_MESSAGE = "missing; add it to config.yaml (see config.example.yaml for the format)"
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -35,12 +35,12 @@ class Links(StrictModel):
 
 
 class LlmConfig(StrictModel):
-    provider: Provider = Provider.CLAUDE_CODE
-    model: str | None = None
+    provider: Provider
+    model: str | None
 
 
 class Config(StrictModel):
-    data_root: Path = Field(default=DEFAULT_DATA_ROOT, validate_default=True)
+    data_root: Path
     name: str
     email: str
     phone: str
@@ -48,10 +48,10 @@ class Config(StrictModel):
     links: Links
     home_industry: str
     industry_keywords: dict[str, list[str]]
-    default_baseline: str = "general"
-    apply_on_my_behalf: bool = False
-    email_scan_hours: int = Field(default=6, gt=0)
-    llm: LlmConfig = LlmConfig()
+    default_baseline: str
+    apply_on_my_behalf: bool
+    email_scan_hours: int = Field(gt=0)
+    llm: LlmConfig
 
     @field_validator("data_root", mode="before")
     @classmethod
@@ -102,7 +102,8 @@ def format_validation_error(error: ValidationError) -> str:
     lines = []
     for detail in error.errors():
         location = ".".join(str(part) for part in detail["loc"]) or "config"
-        lines.append(f"  {location}: {detail['msg']}")
+        message = MISSING_KEY_MESSAGE if detail["type"] == "missing" else detail["msg"]
+        lines.append(f"  {location}: {message}")
     return "\n".join(lines)
 
 
