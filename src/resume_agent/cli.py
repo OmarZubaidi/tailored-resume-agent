@@ -1,5 +1,6 @@
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
@@ -11,7 +12,12 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
-from resume_agent.guards.rules import GuardError, ensure_excel_closed, excel_lock_file
+from resume_agent.guards.rules import (
+    GuardError,
+    ensure_excel_closed,
+    excel_lock_file,
+    is_locked,
+)
 from resume_agent.inbox import (
     Decision,
     InboxError,
@@ -27,6 +33,7 @@ from resume_agent.pipeline import (
     DIFF_FILE,
     TAILOR_ERRORS,
     Mode,
+    applied_files,
     baseline_dir,
     lock_application,
     render_folder,
@@ -35,6 +42,7 @@ from resume_agent.pipeline import (
 )
 from resume_agent.render import RenderError
 from resume_agent.stages import (
+    LOCKING_STAGES,
     Ambiguous,
     StageError,
     find_application,
@@ -42,7 +50,7 @@ from resume_agent.stages import (
     pick_line,
     save_stage,
 )
-from resume_agent.sync import SyncError, sync_stages
+from resume_agent.sync import SyncError, sync_lock, sync_stages
 from resume_agent.tracker import (
     InboxRow,
     Stage,
@@ -193,6 +201,16 @@ def today() -> date:
     return date.today()
 
 
+@contextmanager
+def exclusive(config: Config) -> Iterator[None]:
+    try:
+        with sync_lock(config.data_root):
+            yield
+    except SyncError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+
 def open_tracker(config: Config) -> Tracker:
     path = workbook_path(config.data_root)
     ensure_excel_closed(path)
@@ -205,8 +223,13 @@ def flagged_line(row: InboxRow) -> str:
 
 @app.command("inbox")
 def inbox() -> None:
-    """Fetch, triage and tailor every new URL in the Inbox sheet."""
+    """Fetch, triage and tailor every new or failed URL in the Inbox sheet."""
     config = load_config_or_exit()
+    with exclusive(config):
+        run_inbox(config)
+
+
+def run_inbox(config: Config) -> None:
     try:
         tracker = open_tracker(config)
         result = process_inbox(
@@ -230,6 +253,11 @@ def review(
 ) -> None:
     """Proceed with or drop flagged Inbox jobs."""
     config = load_config_or_exit()
+    with exclusive(config):
+        run_review(config, decision, application_ids)
+
+
+def run_review(config: Config, decision: Decision, application_ids: list[int]) -> None:
     try:
         tracker = open_tracker(config)
         result = review_rows(
@@ -273,6 +301,11 @@ def sync() -> None:
     closed, new Inbox URLs are fetched, triaged and tailored, and Decision cells are applied.
     """
     config = load_config_or_exit()
+    with exclusive(config):
+        run_sync(config)
+
+
+def run_sync(config: Config) -> None:
     path = workbook_path(config.data_root)
     try:
         tracker = load_tracker(path)
@@ -330,12 +363,29 @@ def update(
 ) -> None:
     """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application.
 
-    Applied locks the resume and cover letter in the application folder.
+    Applied, Rejected and Skipped lock the resume and cover letter in the application folder.
     """
     if (resume_file or letter_file) and stage != Stage.APPLIED:
         typer.echo("--resume-file and --letter-file only go with Applied.", err=True)
         raise typer.Exit(1)
     config = load_config_or_exit()
+    with exclusive(config):
+        record_update(
+            config, company, stage, day, note, title, application_id, resume_file, letter_file
+        )
+
+
+def record_update(
+    config: Config,
+    company: str,
+    stage: Stage,
+    day: datetime | None,
+    note: str | None,
+    title: str | None,
+    application_id: int | None,
+    resume_file: Path | None,
+    letter_file: Path | None,
+) -> None:
     try:
         tracker = open_tracker(config)
         variants = load_variants(config.data_root)
@@ -346,7 +396,13 @@ def update(
             raise StageError(f"{pick_line(application)} has no folder for the handed-over files")
 
         def lock_files() -> bool | None:
-            if stage != Stage.APPLIED or not folder:
+            if stage not in LOCKING_STAGES or not folder:
+                return None
+            names = applied_files(config)
+            if stage != Stage.APPLIED and (
+                not all((folder / name).exists() for name in names)
+                or all(is_locked(folder / name) for name in names)
+            ):
                 return None
             return lock_application(folder, config, stage_day, resume_file, letter_file)
 

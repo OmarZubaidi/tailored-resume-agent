@@ -18,6 +18,7 @@ from resume_agent.tracker import (
 )
 
 COMPANIES_FILE = "companies.yaml"
+LOCKING_STAGES = (Stage.APPLIED, Stage.REJECTED, Stage.SKIPPED)
 CLEAR_LEAD = timedelta(days=60)
 LEGAL_SUFFIXES = frozenset(
     {"inc", "llc", "ltd", "limited", "pbc", "corp", "corporation", "co", "company", "plc", "gmbh"}

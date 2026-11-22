@@ -14,7 +14,7 @@ from resume_agent.cli import app
 from resume_agent.config import Config
 from resume_agent.guards.rules import is_locked
 from resume_agent.pipeline import applied_files
-from resume_agent.sync import SYNC_LOCK, SyncError, sync_lock, sync_stages
+from resume_agent.sync import SyncError, sync_lock, sync_stages
 from resume_agent.tracker import Application, Stage, Tracker, save_tracker
 
 FOLDER = "00001 Acme Health - Software Engineer (2026-11-20)"
@@ -80,10 +80,11 @@ def test_applied_date_adds_timeline_and_locks(config, folder):
 
     assert result.events == [
         "00001  Acme Health - Software Engineer (applied 2026-11-20): Applied 2026-11-20, "
-        "files locked"
+        "files locked, ATS PASS"
     ]
     assert "- 2026-11-20 Applied\n" in timeline(folder)
     assert locked(folder, config)
+    assert "- 2026-11-20 locked `resume.md`" in (folder / "notes.md").read_text()
 
 
 def test_unchanged_sheet_does_nothing(config, folder):
@@ -144,14 +145,36 @@ def test_dropped_job_without_documents_is_fine(config):
     assert result.failures == []
 
 
-def test_missing_document_is_reported_and_retried(config, folder):
+def test_missing_document_is_reported_once(config, folder):
     (folder / "resume.md").unlink()
 
-    first = sync_stages(tracker(Applied=APPLIED), config, TODAY)
-    second = sync_stages(tracker(Applied=APPLIED), config, TODAY)
+    first = sync_stages(tracker(Rejected=REJECTED), config, TODAY)
+    second = sync_stages(tracker(Rejected=REJECTED), config, TODAY)
 
-    assert "missing" in first.failures[0]
-    assert second.failures == first.failures
+    assert first.events[0].endswith("files not locked, missing resume.md")
+    assert first.failures == []
+    assert second.events == []
+    assert "- 2026-11-28 Rejected\n" in timeline(folder)
+
+
+def test_changed_date_keeps_the_note(config, folder):
+    add_timeline_event(folder, APPLIED, "2nd: technical Dec 10")
+    sync_stages(tracker(**{"2nd": APPLIED}), config, TODAY)
+
+    sync_stages(tracker(**{"2nd": date(2026, 11, 21)}), config, TODAY)
+
+    assert "- 2026-11-21 2nd: technical Dec 10\n" in timeline(folder)
+    assert "2026-11-20" not in timeline(folder)
+
+
+def test_deleted_row_id_starts_clean_when_reused(config, folder):
+    sync_stages(tracker(Applied=APPLIED), config, TODAY)
+    sync_stages(Tracker(), config, TODAY)
+
+    result = sync_stages(tracker(), config, TODAY)
+
+    assert result.events == []
+    assert locked(folder, config)
 
 
 def test_application_without_folder_is_recorded(config):
@@ -161,11 +184,18 @@ def test_application_without_folder_is_recorded(config):
     assert result.events[0].endswith("Applied 2026-11-20")
 
 
-def test_overlapping_sync_is_refused(config):
+@pytest.mark.parametrize("command", [["sync"], ["inbox"], ["review", "drop", "1"]])
+def test_overlapping_runs_are_refused(config, command):
+    save_tracker(Tracker(), config)
+
     with sync_lock(config.data_root):
-        with pytest.raises(SyncError, match="Another sync is running"):
-            sync_stages(tracker(), config, TODAY)
-    assert (config.data_root / SYNC_LOCK).exists()
+        result = CliRunner().invoke(app, command)
+
+    assert result.exit_code == 1
+    assert "Another sync, inbox or review run is in progress." in result.output
+    with pytest.raises(SyncError):
+        with sync_lock(config.data_root), sync_lock(config.data_root):
+            pass
 
 
 def test_sync_command_reads_the_workbook(config, folder):
@@ -175,4 +205,14 @@ def test_sync_command_reads_the_workbook(config, folder):
 
     assert result.exit_code == 0, result.output
     assert "Applied 2026-11-20, files locked" in result.output
+    assert locked(folder, config)
+
+
+def test_update_rejected_locks_like_sync(config, folder):
+    save_tracker(tracker(), config)
+
+    result = CliRunner().invoke(app, ["update", "Acme Health", "rejected", "--date", "2026-11-28"])
+
+    assert result.exit_code == 0, result.output
+    assert "Locked applied files. ATS PASS" in result.output
     assert locked(folder, config)
