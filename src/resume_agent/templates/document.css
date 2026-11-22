@@ -115,6 +115,7 @@ li::before {
 }
 
 .letter {
+  max-width: 90ch;
   font-size: 11.5pt;
   line-height: 1.45;
 }
