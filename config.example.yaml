@@ -1,4 +1,5 @@
 data_root: "~/Documents/Resume Agent Data"
+excel_template: "~/Documents/Templates/Book.xltx"
 name: "First Last"
 email: "you@example.com"
 phone: "(555) 555-5555"

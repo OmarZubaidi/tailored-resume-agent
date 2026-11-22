@@ -1,15 +1,22 @@
 import os
+import re
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from urllib.parse import unquote
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.cell import Cell
+from openpyxl.styles import Border, Side
+from openpyxl.styles.named_styles import NamedStyleList
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.worksheet import Worksheet
 
+from resume_agent.config import Config
 from resume_agent.data_root import APPLICATIONS_DIR, BASELINES_DIR
 from resume_agent.guards.rules import ensure_excel_closed
 
@@ -20,23 +27,43 @@ OVERVIEW_SHEET = "Overview"
 DATE_FORMAT = "mm-dd-yy"
 ID_DIGITS = 5
 ID_FORMAT = "0" * ID_DIGITS
+FOLDER_COLUMN = "Folder"
+ID_COLUMNS = frozenset({"ID", FOLDER_COLUMN})
+ID_WIDTH = 6
+STATUS_COLUMN = "Status"
+LAST_ROW = 1048576
+TEXT_TYPE = "s"
+APPLICATIONS_LINK_PREFIX = f"{APPLICATIONS_DIR}/"
 PERCENT_FORMAT = "0%"
 INTERESTED = "Interested"
 MODES = ("upward", "lateral")
 BLANK_INBOX_ROWS = 20
 ZOOM_PERCENT = 150
 
-FONT_NAME = "Calibri"
-FONT_SIZE = 8
-ACCENT = "FFED217C"
-BODY_FONT = Font(name=FONT_NAME, sz=FONT_SIZE)
-BOLD_FONT = Font(name=FONT_NAME, sz=FONT_SIZE, b=True)
-HEADER_FONT = Font(name=FONT_NAME, sz=FONT_SIZE, b=True, color=ACCENT)
-LINK_FONT = Font(name=FONT_NAME, sz=FONT_SIZE, u="single", color=ACCENT)
-INPUT_FILL = PatternFill("solid", fgColor="FFCCCCCC")
+BODY_STYLE = "Normal"
+HEADER_STYLE = "Heading"
+INPUT_STYLE = "Input"
+LINK_STYLE = "Hyperlink"
+TEMPLATE_STYLES = (BODY_STYLE, HEADER_STYLE, INPUT_STYLE, LINK_STYLE)
+CURRENCY_STYLE = "Currency: "
 RULE = Border(bottom=Side(style="thin", color="FF000000"))
-BODY_ALIGNMENT = Alignment(vertical="center")
-HEADER_ALIGNMENT = Alignment(horizontal="left", vertical="center")
+WORKSHEET_PART = re.compile(r"xl/worksheets/sheet\d+\.xml")
+IGNORED_ERRORS = (
+    '<ignoredErrors><ignoredError sqref="A1:XFD1048576" formula="1" formulaRange="1"/>'
+    "</ignoredErrors>"
+)
+ELEMENTS_AFTER_IGNORED_ERRORS = (
+    "<smartTags",
+    "<drawing",
+    "<legacyDrawing",
+    "<picture",
+    "<oleObjects",
+    "<controls",
+    "<webPublishItems",
+    "<tableParts",
+    "<extLst",
+    "</worksheet>",
+)
 
 
 class TrackerError(Exception):
@@ -91,15 +118,14 @@ APPLICATIONS = Layout(
         "Notes",
     ),
     widths={
-        "ID": 6,
+        **dict.fromkeys(ID_COLUMNS, ID_WIDTH),
         "Company": 20,
         "Role": 28,
         "Status": 9,
-        **dict.fromkeys(STAGE_COLUMNS, 8),
+        **dict.fromkeys(STAGE_COLUMNS, 12),
         "Mode": 7,
         "Baseline": 9,
         "Link": 28,
-        "Folder": 32,
         "Notes": 40,
     },
     inputs=STAGE_COLUMNS | {"Notes"},
@@ -112,8 +138,7 @@ INBOX = Layout(
         "Mode": 8,
         "Baseline": 10,
         "Status": 9,
-        "ID": 6,
-        "Folder": 32,
+        **dict.fromkeys(ID_COLUMNS, ID_WIDTH),
         "Reason": 50,
     },
     inputs=frozenset({"URL", "Mode", "Baseline"}),
@@ -208,7 +233,7 @@ def overview_weeks(applications: list[Application], today: date) -> list[date]:
 
 def stage_range(stage: Stage) -> str:
     letter = APPLICATIONS.letter(stage.value)
-    return f"{APPLICATIONS_SHEET}!${letter}:${letter}"
+    return f"{APPLICATIONS_SHEET}!${letter}$2:${letter}${LAST_ROW}"
 
 
 def overview_formulas(row: int, week: str | None) -> list[str]:
@@ -240,24 +265,35 @@ def overview_formulas(row: int, week: str | None) -> list[str]:
 
 def write_header(sheet: Worksheet, layout: Layout) -> None:
     for index, name in enumerate(layout.columns, start=1):
-        cell = sheet.cell(row=1, column=index, value=name)
-        cell.font = HEADER_FONT
-        cell.alignment = HEADER_ALIGNMENT
-        cell.border = RULE
+        sheet.cell(row=1, column=index, value=name).style = HEADER_STYLE
         width = layout.widths.get(name, DEFAULT_WIDTH)
         sheet.column_dimensions[get_column_letter(index)].width = width
     sheet.freeze_panes = "A2"
 
 
-def set_cell(sheet: Worksheet, row: int, layout: Layout, name: str, value=None):
+def bolden(cell: Cell) -> None:
+    font = copy(cell.font)
+    font.b = True
+    cell.font = font
+
+
+def set_cell(
+    sheet: Worksheet,
+    row: int,
+    layout: Layout,
+    name: str,
+    value=None,
+    formula: bool = False,
+) -> Cell:
     cell = sheet.cell(row=row, column=layout.columns.index(name) + 1, value=value or None)
-    cell.font = BOLD_FONT if name in layout.bold else BODY_FONT
-    cell.alignment = BODY_ALIGNMENT
-    if name in layout.inputs:
-        cell.fill = INPUT_FILL
+    if isinstance(value, str) and not formula:
+        cell.data_type = TEXT_TYPE
+    cell.style = INPUT_STYLE if name in layout.inputs else BODY_STYLE
+    if name in layout.bold:
+        bolden(cell)
     if isinstance(value, date) or name in STAGE_COLUMNS:
         cell.number_format = DATE_FORMAT
-    elif name == "ID":
+    elif name in ID_COLUMNS:
         cell.number_format = ID_FORMAT
     elif name.endswith("%"):
         cell.number_format = PERCENT_FORMAT
@@ -268,12 +304,19 @@ def link_cell(sheet: Worksheet, row: int, layout: Layout, name: str, target: str
     if not target:
         return
     cell = sheet.cell(row=row, column=layout.columns.index(name) + 1)
+    number_format = cell.number_format
     cell.hyperlink = target
-    cell.font = LINK_FONT
+    cell.style = LINK_STYLE
+    cell.number_format = number_format
 
 
 def folder_link(folder: str) -> str:
-    return f"{APPLICATIONS_DIR}/{folder}" if folder else ""
+    return f"{APPLICATIONS_LINK_PREFIX}{folder}" if folder else ""
+
+
+def link_folder(cell: Cell) -> str:
+    target = cell.hyperlink.target if cell.hyperlink else ""
+    return unquote(target or "").removeprefix(APPLICATIONS_LINK_PREFIX)
 
 
 def write_applications(sheet: Worksheet, applications: list[Application]) -> None:
@@ -288,12 +331,12 @@ def write_applications(sheet: Worksheet, applications: list[Application]) -> Non
             "Mode": app.mode,
             "Baseline": app.baseline,
             "Link": app.link,
-            "Folder": app.folder,
+            "Folder": app.id if app.folder else None,
             "Notes": app.notes,
             **{stage.value: app.stages.get(stage) for stage in Stage},
         }
         for name, value in values.items():
-            set_cell(sheet, row, APPLICATIONS, name, value)
+            set_cell(sheet, row, APPLICATIONS, name, value, formula=name == STATUS_COLUMN)
         link_cell(sheet, row, APPLICATIONS, "Link", app.link)
         link_cell(sheet, row, APPLICATIONS, "Folder", folder_link(app.folder))
 
@@ -307,7 +350,7 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
             "Baseline": item.baseline,
             "Status": item.status,
             "ID": item.id,
-            "Folder": item.folder,
+            "Folder": item.id if item.folder else None,
             "Reason": item.reason,
         }
         for name, value in values.items():
@@ -324,7 +367,7 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
             continue
         letter = INBOX.letter(name)
         validation = DataValidation(type="list", formula1=f'"{",".join(choices)}"')
-        validation.add(f"{letter}2:{letter}1048576")
+        validation.add(f"{letter}2:{letter}{LAST_ROW}")
         sheet.add_data_validation(validation)
 
 
@@ -336,10 +379,10 @@ def write_overview(sheet: Worksheet, applications: list[Application], today: dat
         cells = [set_cell(sheet, row, OVERVIEW, OVERVIEW.columns[0], label)]
         formulas = overview_formulas(row, week_cell)
         for name, formula in zip(OVERVIEW.columns[1:], formulas, strict=True):
-            cells.append(set_cell(sheet, row, OVERVIEW, name, formula))
+            cells.append(set_cell(sheet, row, OVERVIEW, name, formula, formula=True))
         if week_cell is None:
             for cell in cells:
-                cell.font = BOLD_FONT
+                bolden(cell)
                 cell.border = RULE
     sheet.freeze_panes = "A3"
 
@@ -351,22 +394,56 @@ def baseline_names(data_root: Path) -> list[str]:
     return sorted(path.name for path in baselines.iterdir() if path.is_dir())
 
 
-def save_tracker(tracker: Tracker, path: Path, data_root: Path, today: date | None = None):
+def new_workbook(template: Path) -> Workbook:
+    if not template.is_file():
+        raise TrackerError(f"Excel template not found: {template}. Set excel_template in config.")
+    workbook = load_workbook(template)
+    missing = [name for name in TEMPLATE_STYLES if name not in workbook.named_styles]
+    if missing:
+        raise TrackerError(f"{template.name} has no cell styles named: {', '.join(missing)}")
+    for sheet in workbook.worksheets:
+        workbook.remove(sheet)
+    workbook._named_styles = NamedStyleList(
+        [style for style in workbook._named_styles if not style.name.startswith(CURRENCY_STYLE)]
+    )
+    workbook.template = False
+    return workbook
+
+
+def with_ignored_errors(sheet_xml: str) -> str:
+    positions = (sheet_xml.find(marker) for marker in ELEMENTS_AFTER_IGNORED_ERRORS)
+    end = min(position for position in positions if position != -1)
+    return sheet_xml[:end] + IGNORED_ERRORS + sheet_xml[end:]
+
+
+def ignore_formula_errors(path: Path) -> None:
+    with ZipFile(path) as source:
+        parts = [(info, source.read(info)) for info in source.infolist()]
+    with ZipFile(path, "w", ZIP_DEFLATED) as target:
+        for info, data in parts:
+            if WORKSHEET_PART.fullmatch(info.filename):
+                data = with_ignored_errors(data.decode()).encode()
+            target.writestr(info, data)
+
+
+def save_tracker(tracker: Tracker, config: Config, today: date | None = None) -> Path:
+    path = workbook_path(config.data_root)
     ensure_excel_closed(path)
-    workbook = Workbook()
-    inbox = workbook.active
-    inbox.title = INBOX_SHEET
-    write_inbox(inbox, tracker.inbox, baseline_names(data_root))
+    workbook = new_workbook(config.excel_template)
+    write_inbox(workbook.create_sheet(INBOX_SHEET), tracker.inbox, baseline_names(config.data_root))
     write_applications(workbook.create_sheet(APPLICATIONS_SHEET), tracker.applications)
     overview = workbook.create_sheet(OVERVIEW_SHEET)
     write_overview(overview, tracker.applications, today or date.today())
     for sheet in workbook.worksheets:
         sheet.sheet_view.zoomScale = ZOOM_PERCENT
+    workbook.active = 0
     workbook.calculation.fullCalcOnLoad = True
 
     partial = path.with_name(f".{path.name}.partial")
     workbook.save(partial)
+    ignore_formula_errors(partial)
     os.replace(partial, path)
+    return path
 
 
 def cell_text(value) -> str:
@@ -403,8 +480,11 @@ def sheet_rows(workbook, name: str, layout: Layout) -> list[tuple[int, dict]]:
     if header != layout.columns:
         raise TrackerError(f"{name} sheet columns changed. Expected: {', '.join(layout.columns)}")
     rows = []
-    for number, values in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-        record = dict(zip(layout.columns, values, strict=False))
+    for number, cells in enumerate(sheet.iter_rows(min_row=2), start=2):
+        record = {
+            name: link_folder(cell) if name == FOLDER_COLUMN else cell.value
+            for name, cell in zip(layout.columns, cells, strict=False)
+        }
         if any(cell_text(value) for value in record.values()):
             rows.append((number, record))
     return rows
@@ -465,9 +545,7 @@ def workbook_path(data_root: Path) -> Path:
     return data_root / WORKBOOK_FILE
 
 
-def init_workbook(data_root: Path, today: date | None = None) -> Path | None:
-    path = workbook_path(data_root)
-    if path.exists():
+def init_workbook(config: Config, today: date | None = None) -> Path | None:
+    if workbook_path(config.data_root).exists():
         return None
-    save_tracker(Tracker(), path, data_root, today)
-    return path
+    return save_tracker(Tracker(), config, today)

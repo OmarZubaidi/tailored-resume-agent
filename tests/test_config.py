@@ -10,7 +10,7 @@ from resume_agent.config import (
     Provider,
     config_path,
     load_config,
-    resolve_data_root,
+    resolve_path_pattern,
 )
 
 
@@ -116,6 +116,7 @@ def test_invalid_fields(config_data, write_config, change, message):
     "key",
     [
         "data_root",
+        "excel_template",
         "default_baseline",
         "apply_on_my_behalf",
         "email_scan_hours",
@@ -145,31 +146,45 @@ def test_llm_model_key_is_required_but_may_be_null(config_data, write_config):
 
 def test_glob_with_no_match(tmp_path):
     with pytest.raises(ValueError, match="found: none"):
-        resolve_data_root(str(tmp_path / "ProtonDrive-*" / "Data"))
+        resolve_path_pattern(str(tmp_path / "ProtonDrive-*" / "Data"), "data_root")
 
 
 def test_glob_with_two_matches(tmp_path):
     (tmp_path / "ProtonDrive-a").mkdir()
     (tmp_path / "ProtonDrive-b").mkdir()
 
-    with pytest.raises(ValueError, match="exactly one folder"):
-        resolve_data_root(str(tmp_path / "ProtonDrive-*" / "Data"))
+    with pytest.raises(ValueError, match="data_root pattern .* must match exactly one path"):
+        resolve_path_pattern(str(tmp_path / "ProtonDrive-*" / "Data"), "data_root")
 
 
 def test_path_without_glob_is_kept(tmp_path):
-    assert resolve_data_root(str(tmp_path / "Data")) == tmp_path / "Data"
+    assert resolve_path_pattern(str(tmp_path / "Data"), "data_root") == tmp_path / "Data"
 
 
 @pytest.mark.parametrize("pattern", [".", "Resume Agent Data"])
 def test_relative_path_is_rejected(pattern):
-    with pytest.raises(ValueError, match="must be an absolute path"):
-        resolve_data_root(pattern)
+    with pytest.raises(ValueError, match="excel_template must be an absolute path"):
+        resolve_path_pattern(pattern, "excel_template")
 
 
 def test_home_is_expanded(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
 
-    assert resolve_data_root("~/Data") == Path(tmp_path, "Data")
+    assert resolve_path_pattern("~/Data", "data_root") == Path(tmp_path, "Data")
+
+
+def test_excel_template_glob_resolves(config_data, write_config, tmp_path):
+    template = tmp_path / "ProtonDrive-a" / "Office/Book.xltx"
+    template.parent.mkdir(parents=True)
+    template.write_text("")
+    write_config(
+        {
+            **config_data,
+            "excel_template": str(tmp_path / "ProtonDrive-*" / "Office/Book.xltx"),
+        }
+    )
+
+    assert load_config().excel_template == template
 
 
 def test_config_check_command_reports_errors(config_data, write_config):

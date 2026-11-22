@@ -2,8 +2,11 @@ from pathlib import Path
 
 import pytest
 import yaml
+from openpyxl import Workbook
+from openpyxl.styles import NamedStyle
 
 from resume_agent.config import CONFIG_PATH_ENV
+from resume_agent.tracker import TEMPLATE_STYLES
 
 EXAMPLE_CONFIG = Path(__file__).parent.parent / "config.example.yaml"
 PROTON_ACCOUNT_FOLDER = "ProtonDrive-" + "someone@example.com"
@@ -23,9 +26,22 @@ def data_root(cloud_storage: Path) -> Path:
 
 
 @pytest.fixture
-def config_data(cloud_storage: Path) -> dict:
+def excel_template(tmp_path: Path) -> Path:
+    workbook = Workbook()
+    for name in (*TEMPLATE_STYLES, "Currency: USD"):
+        if name not in workbook.named_styles:
+            workbook.add_named_style(NamedStyle(name=name))
+    workbook.template = True
+    path = tmp_path / "Book.xltx"
+    workbook.save(path)
+    return path
+
+
+@pytest.fixture
+def config_data(cloud_storage: Path, excel_template: Path) -> dict:
     data = yaml.safe_load(EXAMPLE_CONFIG.read_text())
     data["data_root"] = str(cloud_storage / "ProtonDrive-*" / DATA_ROOT_SUFFIX)
+    data["excel_template"] = str(excel_template)
     return data
 
 

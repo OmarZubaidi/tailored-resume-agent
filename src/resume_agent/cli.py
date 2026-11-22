@@ -16,7 +16,7 @@ from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, 
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
 from resume_agent.tailor import TailorError
-from resume_agent.tracker import init_workbook
+from resume_agent.tracker import TrackerError, init_workbook
 from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
 from resume_agent.validation import resolve_listing
 
@@ -59,8 +59,8 @@ def init() -> None:
 
     created = init_data_root(config.data_root)
     try:
-        workbook = init_workbook(config.data_root)
-    except GuardError as error:
+        workbook = init_workbook(config)
+    except (GuardError, TrackerError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error
     for path in [*created, *([workbook] if workbook else [])]:

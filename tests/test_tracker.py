@@ -1,8 +1,10 @@
 from datetime import date
+from zipfile import ZipFile
 
 import pytest
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
+from resume_agent.config import Config
 from resume_agent.guards.rules import GuardError, excel_lock_file
 from resume_agent.tracker import (
     APPLICATIONS_SHEET,
@@ -18,10 +20,17 @@ from resume_agent.tracker import (
     overview_weeks,
     save_tracker,
     status_formula,
+    with_ignored_errors,
     workbook_path,
 )
 
 TODAY = date(2026, 11, 21)
+
+
+@pytest.fixture
+def config(config_data, data_root) -> Config:
+    (data_root / "baselines/general").mkdir(parents=True)
+    return Config(**config_data)
 
 
 @pytest.fixture
@@ -43,7 +52,7 @@ def acme() -> Application:
 
 
 @pytest.fixture
-def saved(tmp_path, acme) -> Tracker:
+def saved(config, acme) -> Tracker:
     tracker = Tracker(
         applications=[acme],
         inbox=[
@@ -57,9 +66,13 @@ def saved(tmp_path, acme) -> Tracker:
             )
         ],
     )
-    (tmp_path / "baselines/general").mkdir(parents=True)
-    save_tracker(tracker, workbook_path(tmp_path), tmp_path, TODAY)
+    save_tracker(tracker, config, TODAY)
     return tracker
+
+
+@pytest.fixture
+def path(config) -> object:
+    return workbook_path(config.data_root)
 
 
 def test_status_follows_precedence(acme):
@@ -87,12 +100,12 @@ def test_status_formula_checks_skipped_first_and_falls_back_to_interested():
     assert formula.endswith('IF(E2<>"","Applied","Interested")))))))')
 
 
-def test_round_trip(tmp_path, saved):
-    assert load_tracker(workbook_path(tmp_path)) == saved
+def test_round_trip(path, saved):
+    assert load_tracker(path) == saved
 
 
-def test_sheets_and_formulas(tmp_path, saved):
-    workbook = load_workbook(workbook_path(tmp_path))
+def test_sheets_and_formulas(path, saved):
+    workbook = load_workbook(path)
 
     assert workbook.sheetnames == [INBOX_SHEET, APPLICATIONS_SHEET, OVERVIEW_SHEET]
     applications = workbook[APPLICATIONS_SHEET]
@@ -101,34 +114,69 @@ def test_sheets_and_formulas(tmp_path, saved):
     assert applications["D2"].value == status_formula(2)
     folder = saved.applications[0].folder
     assert applications["O2"].hyperlink.target == f"applications/{folder}"
+    assert applications["O2"].value == 42
+    assert applications["O2"].number_format == "00000"
+    assert applications.column_dimensions["O"].width == applications.column_dimensions["A"].width
     assert {sheet.sheet_view.zoomScale for sheet in workbook.worksheets} == {150}
     overview = workbook[OVERVIEW_SHEET]
     assert overview["A2"].value == "Total"
-    assert overview["B2"].value == '=COUNTIFS(Applications!$E:$E,"<>")'
+    applied, first, rejected = (
+        f"Applications!${column}$2:${column}$1048576" for column in ("E", "F", "J")
+    )
+    assert overview["B2"].value == f'=COUNTIFS({applied},"<>")'
     assert overview["A3"].value.date() == date(2026, 11, 16)
-    assert overview["C3"].value == (
-        '=COUNTIFS(Applications!$E:$E,">="&$A3,Applications!$E:$E,"<"&$A3+7,'
-        'Applications!$F:$F,"<>")'
-    )
-    assert overview["L3"].value == (
-        '=COUNTIFS(Applications!$E:$E,">="&$A3,Applications!$E:$E,"<"&$A3+7,'
-        'Applications!$F:$F,"",Applications!$J:$J,"")'
-    )
+    in_week = f'{applied},">="&$A3,{applied},"<"&$A3+7'
+    assert overview["C3"].value == f'=COUNTIFS({in_week},{first},"<>")'
+    assert overview["L3"].value == f'=COUNTIFS({in_week},{first},"",{rejected},"")'
 
 
-def test_headers_are_accented_and_input_cells_shaded(tmp_path, saved):
-    workbook = load_workbook(workbook_path(tmp_path))
+def test_listing_text_is_never_written_as_a_formula(config):
+    hostile = Application(
+        id=1,
+        company='=HYPERLINK("https://evil.example","Acme")',
+        role="=1+1",
+    )
+
+    save_tracker(Tracker(applications=[hostile]), config, TODAY)
+
+    applications = load_workbook(workbook_path(config.data_root))[APPLICATIONS_SHEET]
+    assert applications["B2"].data_type == "s"
+    assert applications["C2"].data_type == "s"
+    assert applications["D2"].data_type == "f"
+
+
+def test_cells_use_template_styles(path, saved):
+    workbook = load_workbook(path)
     applications = workbook[APPLICATIONS_SHEET]
     inbox = workbook[INBOX_SHEET]
 
-    assert applications["A1"].font.color.rgb == "FFED217C"
-    assert applications["E2"].fill.fgColor.rgb == "FFCCCCCC"
-    assert applications["B2"].fill.fgColor.rgb != "FFCCCCCC"
-    assert inbox["A3"].fill.fgColor.rgb == "FFCCCCCC"
+    assert applications["A1"].style == "Heading"
+    assert applications["A2"].style == "Normal"
+    assert applications["B2"].font.b
+    assert applications["E2"].style == "Input"
+    assert applications["N2"].style == "Hyperlink"
+    assert inbox["A3"].style == "Input"
+    assert not workbook.template
+    assert "Currency: USD" not in workbook.named_styles
+    assert applications.column_dimensions["E"].width == 12
 
 
-def test_inbox_offers_mode_and_baseline_choices(tmp_path, saved):
-    inbox = load_workbook(workbook_path(tmp_path))[INBOX_SHEET]
+def test_formula_warnings_are_ignored_on_every_sheet(path, saved):
+    with ZipFile(path) as package:
+        sheets = [name for name in package.namelist() if name.startswith("xl/worksheets/sheet")]
+        assert len(sheets) == 3
+        for name in sheets:
+            assert 'formula="1"' in package.read(name).decode()
+
+
+def test_ignored_errors_go_before_later_elements():
+    xml = "<worksheet><sheetData/><pageMargins/><tableParts/></worksheet>"
+
+    assert with_ignored_errors(xml).index("<ignoredErrors>") == xml.index("<tableParts")
+
+
+def test_inbox_offers_mode_and_baseline_choices(path, saved):
+    inbox = load_workbook(path)[INBOX_SHEET]
 
     choices = {validation.formula1 for validation in inbox.data_validations.dataValidation}
     assert choices == {'"upward,lateral"', '"general"'}
@@ -148,16 +196,41 @@ def test_overview_weeks_without_applications_is_current_week():
     assert overview_weeks([], TODAY) == [date(2026, 11, 16)]
 
 
-def test_save_refuses_while_open_in_excel(tmp_path):
-    path = workbook_path(tmp_path)
+def test_save_refuses_while_open_in_excel(config, path):
     excel_lock_file(path).write_text("")
 
     with pytest.raises(GuardError, match="open in Excel"):
-        save_tracker(Tracker(), path, tmp_path, TODAY)
+        save_tracker(Tracker(), config, TODAY)
 
 
-def test_bad_date_names_the_cell(tmp_path, saved):
-    path = workbook_path(tmp_path)
+def test_missing_template(config_data, data_root, tmp_path):
+    config = Config(**{**config_data, "excel_template": str(tmp_path / "missing.xltx")})
+
+    with pytest.raises(TrackerError, match="Excel template not found"):
+        save_tracker(Tracker(), config, TODAY)
+
+
+def test_template_without_styles(config_data, data_root, tmp_path):
+    data_root.mkdir(parents=True)
+    template = tmp_path / "Plain.xltx"
+    workbook = Workbook()
+    workbook.template = True
+    workbook.save(template)
+    config = Config(**{**config_data, "excel_template": str(template)})
+
+    with pytest.raises(TrackerError, match="no cell styles named: Heading, Input"):
+        save_tracker(Tracker(), config, TODAY)
+
+
+def test_folder_is_read_from_an_encoded_link(path, saved):
+    workbook = load_workbook(path)
+    workbook[APPLICATIONS_SHEET]["O2"].hyperlink = "applications/00042%20Acme%20Health"
+    workbook.save(path)
+
+    assert load_tracker(path).applications[0].folder == "00042 Acme Health"
+
+
+def test_bad_date_names_the_cell(path, saved):
     workbook = load_workbook(path)
     workbook[APPLICATIONS_SHEET]["F2"] = "next week"
     workbook.save(path)
@@ -166,8 +239,7 @@ def test_bad_date_names_the_cell(tmp_path, saved):
         load_tracker(path)
 
 
-def test_changed_columns_are_rejected(tmp_path, saved):
-    path = workbook_path(tmp_path)
+def test_changed_columns_are_rejected(path, saved):
     workbook = load_workbook(path)
     workbook[APPLICATIONS_SHEET]["B1"] = "Employer"
     workbook.save(path)
@@ -176,7 +248,7 @@ def test_changed_columns_are_rejected(tmp_path, saved):
         load_tracker(path)
 
 
-def test_init_workbook_does_not_overwrite(tmp_path):
-    assert init_workbook(tmp_path, TODAY) == workbook_path(tmp_path)
-    assert init_workbook(tmp_path, TODAY) is None
-    assert load_tracker(workbook_path(tmp_path)) == Tracker()
+def test_init_workbook_does_not_overwrite(config, path):
+    assert init_workbook(config, TODAY) == path
+    assert init_workbook(config, TODAY) is None
+    assert load_tracker(path) == Tracker()
