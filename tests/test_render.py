@@ -13,6 +13,7 @@ from resume_agent.render import (
     cover_letter_html,
     render_pdf,
     resume_html,
+    role_heading_html,
     text_html,
 )
 
@@ -55,6 +56,29 @@ def test_resume_html_escapes_and_contains_contact(config):
     assert config.location in html
     assert '<span class="skill-label">Languages:</span> TypeScript, Python' in html
     assert "Software Engineer · TypeScript" in html
+
+
+def test_role_heading_splits_title_from_company():
+    html = role_heading_html("Software Engineer @ Acme Health, 01/2023 - present").replace(
+        REGULAR_SPACE, " "
+    )
+
+    assert html == (
+        '<span class="role-title">Software Engineer</span> @ '
+        '<span class="role-subtitle">Acme Health, 01/2023 - present</span>'
+    )
+
+
+def test_role_heading_without_company():
+    html = role_heading_html("BSc, Computer Science").replace(REGULAR_SPACE, " ")
+
+    assert html == '<span class="role-title">BSc, Computer Science</span>'
+
+
+def test_roles_without_bullets_are_compact(config):
+    resume = parse_resume("## Experience\n### Field Technician @ Globex, 01/2016 - 11/2019\n")
+
+    assert '<div class="role compact">' in resume_html(resume, config)
 
 
 def test_cover_letter_html_has_signature_block(config):

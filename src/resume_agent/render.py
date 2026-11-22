@@ -5,7 +5,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from resume_agent.config import Config
-from resume_agent.documents import CoverLetter, Resume, Section
+from resume_agent.documents import CoverLetter, Resume, Role, Section
 
 CSS = files("resume_agent").joinpath("templates/document.css").read_text()
 CONTENT_WIDTH_PX = 720
@@ -18,6 +18,7 @@ COUNT_CONTACT_ROWS_JS = """
 REGULAR_SPACE = '<span class="space"> </span>'
 CONTACT_SEPARATOR_TEXT = "|"
 CONTACT_SEPARATOR = f" {CONTACT_SEPARATOR_TEXT} "
+ROLE_SEPARATOR = " @ "
 
 
 class RenderError(Exception):
@@ -64,17 +65,31 @@ def labelled_html(text: str) -> str:
     return f'<span class="skill-label">{text_html(label)}:</span> {text_html(rest)}'
 
 
+def role_heading_html(heading: str) -> str:
+    title, separator, rest = heading.partition(ROLE_SEPARATOR)
+    title_html = f'<span class="role-title">{text_html(title)}</span>'
+    if not separator:
+        return title_html
+    return f'{title_html}{text_html(separator)}<span class="role-subtitle">{text_html(rest)}</span>'
+
+
+def role_html(role: Role) -> str:
+    bullets = "".join(f"<li>{text_html(bullet)}</li>" for bullet in role.bullets)
+    subtitle = (
+        f'<div class="role-subtitle">{text_html(role.subtitle)}</div>' if role.subtitle else ""
+    )
+    return (
+        f'<div class="role{"" if bullets else " compact"}">'
+        f'<div class="role-heading">{role_heading_html(role.title)}</div>'
+        f"{subtitle}"
+        f"{f'<ul>{bullets}</ul>' if bullets else ''}"
+        "</div>"
+    )
+
+
 def section_html(section: Section) -> str:
     parts = [f"<h2>{text_html(section.title)}</h2>"]
-    for role in section.roles:
-        bullets = "".join(f"<li>{text_html(bullet)}</li>" for bullet in role.bullets)
-        parts.append(
-            '<div class="role">'
-            f'<div class="role-title">{text_html(role.title)}</div>'
-            f'<div class="role-subtitle">{text_html(role.subtitle)}</div>'
-            f"{f'<ul>{bullets}</ul>' if bullets else ''}"
-            "</div>"
-        )
+    parts.extend(role_html(role) for role in section.roles)
     if section.items:
         rows = "".join(f"<div>{labelled_html(item)}</div>" for item in section.items)
         parts.append(f'<div class="skills">{rows}</div>')
