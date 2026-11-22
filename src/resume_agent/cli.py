@@ -8,8 +8,11 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
+from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.pipeline import baseline_dir, render_folder
 from resume_agent.render import RenderError
+from resume_agent.triage import TRIAGE_MD, triage_listing
+from resume_agent.validation import resolve_listing
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
 config_app = typer.Typer(help="Inspect the config file.", no_args_is_help=True)
@@ -79,6 +82,30 @@ def render(
     typer.echo(f"ATS {'PASS' if result.passed else 'FAIL'}: {result.report}")
     if not result.passed:
         raise typer.Exit(1)
+
+
+@app.command("fetch")
+def fetch(
+    out_dir: Annotated[Path, typer.Argument(help="Folder for listing.pdf, listing.md, triage.md.")],
+    url: Annotated[str | None, typer.Option(help="Job listing URL.")] = None,
+    pdf: Annotated[Path | None, typer.Option(help="A listing you printed to PDF.")] = None,
+) -> None:
+    """Save a job listing, validate it and triage it."""
+    if (url is None) == (pdf is None):
+        typer.echo("Pass exactly one of --url or --pdf.", err=True)
+        raise typer.Exit(1)
+    config = load_config_or_exit()
+    try:
+        raw = fetch_listing(url, out_dir) if url else listing_from_pdf(pdf, out_dir)
+        listing, validation, used_ocr = resolve_listing(raw, out_dir)
+    except (BrowserError, ListingError, FileNotFoundError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    triage = triage_listing(listing, config)
+    (out_dir / TRIAGE_MD).write_text(triage.markdown())
+    typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
+    typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")
 
 
 @dev_app.command("install-hooks")
