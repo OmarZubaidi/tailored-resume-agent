@@ -21,6 +21,7 @@ from resume_agent.inbox import (
     sync_inbox,
 )
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
+from resume_agent.launch_agent import LaunchAgentError, install_sync_agent, log_path
 from resume_agent.llm import run_prompt
 from resume_agent.pipeline import (
     DIFF_FILE,
@@ -364,6 +365,19 @@ def update(
         typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
     elif stage == Stage.APPLIED:
         typer.echo("No application folder, so no files were locked.", err=True)
+
+
+@dev_app.command("install-sync")
+def install_sync() -> None:
+    """Run `sync` with launchd whenever the data folder changes (workbook saved, Excel closed)."""
+    config = load_config_or_exit()
+    try:
+        path = install_sync_agent(config)
+    except LaunchAgentError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    typer.echo(f"sync runs on every change in {config.data_root}: {path}")
+    typer.echo(f"Log: {log_path(Path.home())}")
 
 
 @dev_app.command("install-hooks")
