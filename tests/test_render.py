@@ -17,6 +17,7 @@ from resume_agent.render import (
     text_html,
 )
 
+NOBREAK = re.compile(r'<span class="nobreak">(.*?)</span>')
 CHROME = Path("/Applications/Google Chrome.app")
 needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
 
@@ -46,8 +47,24 @@ def test_text_html_uses_regular_weight_spaces():
     assert text_html("a <b> c") == f"a{REGULAR_SPACE}&lt;b&gt;{REGULAR_SPACE}c"
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("cross-functional", '<span class="nobreak">cross-functional</span>'),
+        ("01/2023 - present", f"01/2023{REGULAR_SPACE}-{REGULAR_SPACE}present"),
+        ("plain", "plain"),
+    ],
+)
+def test_hyphenated_words_do_not_break(text, expected):
+    assert text_html(text) == expected
+
+
+def plain(html: str) -> str:
+    return NOBREAK.sub(r"\1", html.replace(REGULAR_SPACE, " "))
+
+
 def test_resume_html_escapes_and_contains_contact(config):
-    html = resume_html(parse_resume(RESUME), config).replace(REGULAR_SPACE, " ")
+    html = plain(resume_html(parse_resume(RESUME), config))
 
     assert "Built &lt;fast&gt; Lambdas &amp; tests." in html
     email_link = f'<a href="mailto:{config.email}">{config.email}</a>'

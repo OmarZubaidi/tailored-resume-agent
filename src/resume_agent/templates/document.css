@@ -94,6 +94,10 @@ li::before {
   font-style: normal;
 }
 
+.nobreak {
+  white-space: nowrap;
+}
+
 .paragraph {
   margin-top: 7pt;
 }

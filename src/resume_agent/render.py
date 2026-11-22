@@ -25,9 +25,16 @@ class RenderError(Exception):
     pass
 
 
+def word_html(word: str) -> str:
+    # A line break after a hyphen extracts as two words and breaks keyword matching.
+    if "-" in word.strip("-"):
+        return f'<span class="nobreak">{escape(word)}</span>'
+    return escape(word)
+
+
 def text_html(text: str) -> str:
     # Helvetica Neue Bold and Italic spaces lack a ToUnicode entry, so extractors split words.
-    return REGULAR_SPACE.join(escape(part) for part in text.split(" "))
+    return REGULAR_SPACE.join(word_html(word) for word in text.split(" "))
 
 
 def signature_items(config: Config) -> list[tuple[str, str | None]]:
