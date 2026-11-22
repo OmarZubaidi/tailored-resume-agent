@@ -11,6 +11,8 @@ from resume_agent.browser import BrowserError
 from resume_agent.config import Config, ConfigError, load_config
 from resume_agent.data_root import dataless_paths, dataless_warning, init_data_root
 from resume_agent.documents import DocumentError
+from resume_agent.gmail import GmailError
+from resume_agent.gmail import login as gmail_sign_in
 from resume_agent.guards.rules import GuardError, ensure_excel_closed
 from resume_agent.inbox import Decision, InboxError, InboxResult, process_inbox, review_rows
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
@@ -54,6 +56,8 @@ config_app = typer.Typer(help="Inspect the config file.", no_args_is_help=True)
 app.add_typer(config_app, name="config")
 dev_app = typer.Typer(help="Developer setup.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
+gmail_app = typer.Typer(help="Read-only Gmail sign-in and scan.", no_args_is_help=True)
+app.add_typer(gmail_app, name="gmail")
 HOOKS_PATH = ".githooks"
 ISO_DATE = "%Y-%m-%d"
 
@@ -313,6 +317,23 @@ def update(
         typer.echo(f"Locked applied files. ATS {'PASS' if ats_passed else 'FAIL'}")
     elif stage == Stage.APPLIED:
         typer.echo("No application folder, so no files were locked.", err=True)
+
+
+@gmail_app.command("login")
+def gmail_login(
+    client_file: Annotated[
+        Path,
+        typer.Option(exists=True, dir_okay=False, help="Desktop OAuth client JSON from Google."),
+    ],
+) -> None:
+    """Sign in to Gmail read-only and keep the token in the macOS Keychain."""
+    config = load_config_or_exit()
+    try:
+        account = gmail_sign_in(client_file, config)
+    except GmailError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    typer.echo(f"Signed in to Gmail as {account}. The token is in the Keychain.")
 
 
 @dev_app.command("install-hooks")
