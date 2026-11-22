@@ -19,7 +19,6 @@ from resume_agent.guards.rules import (
     is_locked,
 )
 from resume_agent.inbox import (
-    Decision,
     InboxError,
     InboxResult,
     process_inbox,
@@ -52,6 +51,7 @@ from resume_agent.stages import (
 )
 from resume_agent.sync import SyncError, sync_lock, sync_stages
 from resume_agent.tracker import (
+    Decision,
     InboxRow,
     Stage,
     Tracker,
@@ -284,7 +284,10 @@ def echo_inbox_result(result: InboxResult) -> None:
     if result.flagged:
         lines = "\n".join(flagged_line(row) for row in result.flagged)
         typer.echo(f"Flagged, waiting for your review:\n{lines}")
-        typer.echo("Decide by typing proceed or drop in the Decision column, then save and close.")
+        typer.echo(
+            "Decide by typing proceed or drop in the Decision column (then save and close Excel),"
+            " or run: resume_agent review proceed|drop <ID>..."
+        )
     if result.failed:
         raise typer.Exit(1)
 

@@ -183,6 +183,16 @@ def test_inbox_offers_mode_baseline_and_decision_choices(path, saved):
     assert choices == {'"upward,lateral"', '"general"', '"proceed,drop"'}
 
 
+def test_column_inserted_between_known_ones_is_refused(path, saved):
+    workbook = load_workbook(path)
+    workbook[INBOX_SHEET].insert_cols(2)
+    workbook[INBOX_SHEET].cell(row=1, column=2, value="My notes")
+    workbook.save(path)
+
+    with pytest.raises(TrackerError, match="Inbox sheet columns changed"):
+        load_tracker(path)
+
+
 def test_inbox_without_decision_column_still_loads(path, saved):
     workbook = load_workbook(path)
     workbook[INBOX_SHEET].delete_cols(INBOX.columns.index("Decision") + 1)

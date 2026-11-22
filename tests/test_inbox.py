@@ -309,14 +309,24 @@ def test_new_rows_are_processed_and_nothing_waiting_saves_nothing(config, calls)
     assert second.tailored == [] and saves == []
 
 
-def test_unusable_decision_is_reported_and_cleared(config, calls):
-    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL, status=FAILED, decision="drop")])
+@pytest.mark.parametrize(
+    ("status", "decision", "reason"),
+    [
+        (FAILED, "drop", "needs a flagged or failed row"),
+        (FLAGGED, "procede", "must be one of: proceed, drop"),
+    ],
+)
+def test_unusable_decision_stays_in_its_cell(config, calls, status, decision, reason):
+    tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL, id=1, status=status, decision=decision)])
     reports = []
 
-    sync(tracker, config, reports)
+    _, saves = sync(tracker, config, reports)
 
-    assert reports == [f"Decision 'drop' for {CLEAR_URL} needs a flagged or failed row"]
-    assert tracker.inbox[0].decision == ""
+    assert reports == [
+        f"Decision {decision!r} for {CLEAR_URL} {reason}. Left in the Decision cell."
+    ]
+    assert tracker.inbox[0].decision == decision
+    assert saves == []
 
 
 def test_sync_command_leaves_the_inbox_while_excel_is_open(config, calls, monkeypatch):

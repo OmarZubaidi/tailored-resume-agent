@@ -160,7 +160,13 @@ INBOX = Layout(
     inputs=frozenset({"URL", "Mode", "Baseline", "Decision"}),
     added=frozenset({"Decision"}),
 )
-DECISIONS = ("proceed", "drop")
+
+
+class Decision(StrEnum):
+    PROCEED = "proceed"
+    DROP = "drop"
+
+
 OVERVIEW = Layout(
     columns=(
         "Week Starting",
@@ -387,7 +393,7 @@ def write_inbox(sheet: Worksheet, rows: list[InboxRow], baselines: list[str]) ->
         for name in INBOX.columns:
             set_cell(sheet, row, INBOX, name)
 
-    for name, choices in (("Mode", MODES), ("Baseline", baselines), ("Decision", DECISIONS)):
+    for name, choices in (("Mode", MODES), ("Baseline", baselines), ("Decision", tuple(Decision))):
         listed = ",".join(choices)
         if not choices or "," in "".join(choices) or len(listed) > MAX_LIST_LENGTH:
             continue
@@ -519,9 +525,9 @@ def sheet_rows(workbook, name: str, layout: Layout) -> list[tuple[int, dict]]:
         raise TrackerError(f"Workbook has no {name!r} sheet. Was it made by `resume_agent init`?")
     sheet = workbook[name]
     header = [cell_text(cell.value) for cell in sheet[1]]
-    current = tuple(column for column in header if column in layout.columns)
     expected = (layout.columns, tuple(c for c in layout.columns if c not in layout.added))
-    if current not in expected:
+    current = next((cols for cols in expected if tuple(header[: len(cols)]) == cols), None)
+    if current is None:
         raise TrackerError(f"{name} sheet columns changed. Expected: {', '.join(layout.columns)}")
     positions = {column: header.index(column) for column in current}
     rows = []
