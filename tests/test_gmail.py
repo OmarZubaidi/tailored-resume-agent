@@ -1,7 +1,8 @@
 import json
+from datetime import date
 
 import pytest
-from fake_gmail import ACCOUNT, FakeKeychain, FakeService, token_info
+from fake_gmail import ACCOUNT, FakeKeychain, FakeService, encoded, gmail_message, token_info
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from typer.testing import CliRunner
@@ -9,7 +10,15 @@ from typer.testing import CliRunner
 from resume_agent import gmail
 from resume_agent.cli import app
 from resume_agent.config import Config
-from resume_agent.gmail import GmailError, Mailbox, login, open_mailbox, stored_credentials
+from resume_agent.gmail import (
+    GmailError,
+    Mailbox,
+    body_text,
+    login,
+    open_mailbox,
+    parse_message,
+    stored_credentials,
+)
 
 MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 
@@ -89,6 +98,63 @@ def test_account_match_ignores_case(monkeypatch, config):
     use_service(monkeypatch, FakeService(account=ACCOUNT.upper()))
 
     assert isinstance(open_mailbox(config), Mailbox)
+
+
+def test_message_ids_follow_pages():
+    messages = [gmail_message(f"m{number}", "Hello") for number in range(5)]
+    service = FakeService(messages=messages, page_size=2)
+
+    assert Mailbox(service).message_ids("in:inbox") == ["m0", "m1", "m2", "m3", "m4"]
+
+
+def test_message_reads_headers_date_and_text():
+    service = FakeService(messages=[gmail_message("m1", "We will not move forward.")])
+
+    email = Mailbox(service).message("m1")
+
+    assert email.sender == "Acme Health <no-reply@greenhouse.io>"
+    assert email.subject == "Your application"
+    assert email.received == date(2026, 11, 20)
+    assert email.text == "We will not move forward."
+
+
+def multipart(*parts: dict) -> dict:
+    return {
+        "mimeType": "multipart/mixed",
+        "parts": list(parts),
+    }
+
+
+def part(mime_type: str, text: str, filename: str = "") -> dict:
+    return {
+        "mimeType": mime_type,
+        "filename": filename,
+        "body": {
+            "data": encoded(text),
+        },
+    }
+
+
+def test_plain_text_part_wins_over_html():
+    payload = multipart(
+        multipart(part("text/plain", "Plain body"), part("text/html", "<p>HTML body</p>")),
+        part("text/plain", "attachment text", filename="notes.txt"),
+    )
+
+    assert body_text(payload) == "Plain body"
+
+
+def test_html_only_email_is_stripped_to_text():
+    html = "<html><head><style>p {}</style></head><body><p>Next&nbsp;round</p></body></html>"
+
+    assert body_text(part("text/html", html)) == "Next round"
+
+
+def test_empty_body_falls_back_to_snippet():
+    message = gmail_message("m1", "")
+    message["snippet"] = "Thanks for applying"
+
+    assert parse_message(message).text == "Thanks for applying"
 
 
 class FakeFlow:

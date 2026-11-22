@@ -1,4 +1,10 @@
+import base64
 import json
+import re
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import date, datetime
+from html.parser import HTMLParser
 from pathlib import Path
 
 import httplib2
@@ -18,10 +24,85 @@ KEYCHAIN_TOKEN = "gmail-token"
 LOGIN_COMMAND = "resume_agent gmail login --client-file <downloaded JSON>"
 SETUP_DOC = "docs/gmail-setup.md"
 REQUEST_ERRORS = (HttpError, GoogleAuthError, httplib2.HttpLib2Error, OSError)
+HIDDEN_TAGS = frozenset({"head", "script", "style"})
+WHITESPACE = re.compile(r"\s+")
 
 
 class GmailError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class Email:
+    id: str
+    sender: str
+    subject: str
+    received: date
+    text: str
+
+
+class TextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.hidden_depth = 0
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in HIDDEN_TAGS:
+            self.hidden_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in HIDDEN_TAGS and self.hidden_depth:
+            self.hidden_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self.hidden_depth:
+            self.parts.append(data)
+
+
+def html_text(html: str) -> str:
+    extractor = TextExtractor()
+    extractor.feed(html)
+    extractor.close()
+    return WHITESPACE.sub(" ", " ".join(extractor.parts)).strip()
+
+
+def walk_parts(payload: dict) -> Iterator[dict]:
+    yield payload
+    for part in payload.get("parts", []):
+        yield from walk_parts(part)
+
+
+def decoded_body(part: dict) -> str:
+    data = part.get("body", {}).get("data", "")
+    padded = data + "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(padded).decode("utf-8", errors="replace")
+
+
+def body_text(payload: dict) -> str:
+    inline = [part for part in walk_parts(payload) if not part.get("filename")]
+    plain = [decoded_body(part) for part in inline if part.get("mimeType") == "text/plain"]
+    if any(text.strip() for text in plain):
+        return "\n".join(plain).strip()
+    html = [decoded_body(part) for part in inline if part.get("mimeType") == "text/html"]
+    return "\n".join(html_text(text) for text in html).strip()
+
+
+def header(payload: dict, name: str) -> str:
+    wanted = name.lower()
+    found = (item["value"] for item in payload.get("headers", []) if item["name"].lower() == wanted)
+    return next(found, "")
+
+
+def parse_message(message: dict) -> Email:
+    payload = message.get("payload", {})
+    return Email(
+        id=message["id"],
+        sender=header(payload, "From"),
+        subject=header(payload, "Subject"),
+        received=datetime.fromtimestamp(int(message["internalDate"]) / 1000).date(),
+        text=body_text(payload) or message.get("snippet", ""),
+    )
 
 
 def require_read_only(credentials: Credentials) -> None:
@@ -84,6 +165,20 @@ class Mailbox:
 
     def account(self) -> str:
         return self.execute(self._users.getProfile(userId="me"))["emailAddress"]
+
+    def message_ids(self, query: str) -> list[str]:
+        ids, page = [], None
+        while True:
+            request = self._users.messages().list(userId="me", q=query, pageToken=page)
+            reply = self.execute(request)
+            ids += [message["id"] for message in reply.get("messages", [])]
+            page = reply.get("nextPageToken")
+            if not page:
+                return ids
+
+    def message(self, message_id: str) -> Email:
+        request = self._users.messages().get(userId="me", id=message_id, format="full")
+        return parse_message(self.execute(request))
 
 
 def gmail_service(credentials: Credentials):
