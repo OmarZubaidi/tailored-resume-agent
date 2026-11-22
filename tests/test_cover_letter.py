@@ -77,6 +77,7 @@ def test_years_in_words(months, words):
         ("I bring not only skill, but grit.", "uses contrast framing"),
         ("Built it fast — and well.", "uses an en or em dash"),
         ("On your stack: I know it.", "uses a colon: 'stack:'"),
+        ("I built it. I'm proud. I'd do it again.", "starts 3 sentences in a row with 'I'"),
         ("I like [Company Name].", "leaves the placeholder [Company Name]"),
         ("i built the fax api.", "starts a sentence in lowercase: 'i'"),
         ("I built it. then I tested it.", "starts a sentence in lowercase: 'then'"),
@@ -93,6 +94,10 @@ def test_style_problems(text, problem):
 
 def test_plain_writing_has_no_style_problems():
     assert style_problems("I'm not sure, but I built a fax (yes, that fax!) REST API.") == []
+
+
+def test_two_sentences_starting_with_i_are_fine():
+    assert style_problems("I built it. I tested it. Then it shipped. I fixed one bug.") == []
 
 
 def test_abbreviations_and_mixed_case_names_pass_the_casing_check():

@@ -20,6 +20,9 @@ NUMBER_WORDS = (
 ).split()
 LONG_DASH = re.compile(r"[–—]")
 SENTENCE_COLON = re.compile(r"\w+:(?=\s)")
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
+STARTS_WITH_I = re.compile(r"I\b")
+MAX_I_RUN = 3
 YEARS_MENTION = re.compile(r"\b\w+\+? years?\b", re.IGNORECASE)
 NO_VOICE_NOTES = "None yet. Write in a plain, professional register."
 MAX_LETTER_WORDS = 320
@@ -124,12 +127,23 @@ def casing_problems(text: str) -> list[str]:
     return problems
 
 
+def starts_with_i_run(text: str) -> bool:
+    run = 0
+    for sentence in SENTENCE_BREAK.split(text):
+        run = run + 1 if STARTS_WITH_I.match(sentence) else 0
+        if run >= MAX_I_RUN:
+            return True
+    return False
+
+
 def style_problems(text: str) -> list[str]:
     problems = [f"uses the banned phrase {word!r}" for word in BANNED_WORD.findall(text)]
     problems += [f"uses contrast framing: {match!r}" for match in CONTRAST_FRAMING.findall(text)]
     if LONG_DASH.search(text):
         problems.append("uses an en or em dash")
     problems += [f"uses a colon: {match!r}" for match in SENTENCE_COLON.findall(text)]
+    if starts_with_i_run(text):
+        problems.append(f"starts {MAX_I_RUN} sentences in a row with 'I'")
     problems += casing_problems(text)
     problems += [f"leaves the placeholder {item}" for item in open_placeholders(text.splitlines())]
     return problems
