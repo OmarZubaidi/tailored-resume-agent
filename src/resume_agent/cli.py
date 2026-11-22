@@ -1,4 +1,5 @@
 import subprocess
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -15,8 +16,23 @@ from resume_agent.llm import LlmError, run_prompt
 from resume_agent.pipeline import DIFF_FILE, Mode, baseline_dir, render_folder, tailor_folder
 from resume_agent.prompts import PromptError
 from resume_agent.render import RenderError
+from resume_agent.stages import (
+    Ambiguous,
+    StageError,
+    find_application,
+    load_variants,
+    pick_line,
+    record_stage,
+)
 from resume_agent.tailor import TailorError
-from resume_agent.tracker import TrackerError, init_workbook
+from resume_agent.tracker import (
+    Stage,
+    TrackerError,
+    init_workbook,
+    load_tracker,
+    save_tracker,
+    workbook_path,
+)
 from resume_agent.triage import TRIAGE_MD, add_fit, triage_listing
 from resume_agent.validation import resolve_listing
 
@@ -26,6 +42,7 @@ app.add_typer(config_app, name="config")
 dev_app = typer.Typer(help="Developer setup.", no_args_is_help=True)
 app.add_typer(dev_app, name="dev")
 HOOKS_PATH = ".githooks"
+ISO_DATE = "%Y-%m-%d"
 
 
 @app.callback()
@@ -160,6 +177,43 @@ def tailor(
     typer.echo(f"ATS {'PASS' if result.render.passed else 'FAIL'}: {result.render.report}")
     if not result.render.passed:
         raise typer.Exit(1)
+
+
+@app.command("update")
+def update(
+    company: Annotated[str, typer.Argument(help="Company name, or a variant in companies.yaml.")],
+    stage: Annotated[Stage, typer.Argument(case_sensitive=False, help="Stage reached.")],
+    day: Annotated[
+        datetime | None,
+        typer.Option("--date", formats=[ISO_DATE], help="Stage date; defaults to today."),
+    ] = None,
+    note: Annotated[str | None, typer.Option(help="Detail for timeline.md.")] = None,
+    title: Annotated[
+        str | None, typer.Option(help="Job title or req ID, when several are open.")
+    ] = None,
+    application_id: Annotated[
+        int | None, typer.Option("--id", help="Application ID from the pick list.")
+    ] = None,
+) -> None:
+    """Record a stage (Applied, 1st, 2nd, 3rd, Offer, Rejected, Skipped) for an application."""
+    config = load_config_or_exit()
+    try:
+        tracker = load_tracker(workbook_path(config.data_root))
+        variants = load_variants(config.data_root)
+        application = find_application(tracker, company, variants, title, application_id)
+        stage_day = day.date() if day else date.today()
+        record_stage(application, stage, stage_day, config.data_root, note)
+        save_tracker(tracker, config)
+    except Ambiguous as ambiguous:
+        lines = "\n".join(f"  {pick_line(app)}" for app in ambiguous.candidates)
+        typer.echo(f"Several open applications match {company}:\n{lines}", err=True)
+        typer.echo("Rerun with --id <ID>.", err=True)
+        raise typer.Exit(1) from ambiguous
+    except (GuardError, StageError, TrackerError) as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"{pick_line(application)}: {stage.value} {stage_day}")
 
 
 @dev_app.command("install-hooks")
