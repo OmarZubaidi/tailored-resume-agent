@@ -2,7 +2,12 @@ from datetime import date
 
 import pytest
 
-from resume_agent.documents import DocumentError, date_problems, parse_resume
+from resume_agent.documents import (
+    DocumentError,
+    date_problems,
+    parse_cover_letter,
+    parse_resume,
+)
 
 RESUME = """---
 headline: Software Engineer · TypeScript · AWS
@@ -81,6 +86,31 @@ def test_bad_front_matter_is_rejected(front_matter, message):
 def test_unclosed_front_matter_is_rejected():
     with pytest.raises(DocumentError, match="never closes"):
         parse_resume("---\nheadline: x\n## Experience\n")
+
+
+def test_parse_cover_letter():
+    letter = parse_cover_letter(
+        "Dear Hiring Manager,\n\nFirst line\ncontinues here.\n\nSecond paragraph.\n\nBest,\n"
+    )
+
+    assert letter.title == "Cover Letter"
+    assert letter.paragraphs == [
+        "Dear Hiring Manager,",
+        "First line continues here.",
+        "Second paragraph.",
+    ]
+    assert letter.closing == "Best,"
+
+
+def test_cover_letter_title_from_front_matter():
+    letter = parse_cover_letter("---\ntitle: Letter\n---\nHello.\n\nBest,\n")
+
+    assert letter.title == "Letter"
+
+
+def test_cover_letter_without_closing_is_rejected():
+    with pytest.raises(DocumentError, match="closing"):
+        parse_cover_letter("Only one paragraph.\n")
 
 
 def test_valid_dates_have_no_problems():

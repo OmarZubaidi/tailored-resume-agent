@@ -5,20 +5,28 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from resume_agent.config import Config
-from resume_agent.documents import Resume, Section
+from resume_agent.documents import CoverLetter, Resume, Section
 
 CSS = files("resume_agent").joinpath("templates/document.css").read_text()
 CONTENT_WIDTH_PX = 720
 MAX_CONTACT_ROWS = 2
 COUNT_CONTACT_ROWS_JS = """
 () => new Set(
-  [...document.querySelectorAll('.contact span')].map((item) => item.offsetTop)
+  [...document.querySelectorAll('.contact > .item')].map((item) => item.offsetTop)
 ).size
 """
+REGULAR_SPACE = '<span class="space"> </span>'
+CONTACT_SEPARATOR_TEXT = "|"
+CONTACT_SEPARATOR = f" {CONTACT_SEPARATOR_TEXT} "
 
 
 class RenderError(Exception):
     pass
+
+
+def text_html(text: str) -> str:
+    # Helvetica Neue Bold and Italic spaces lack a ToUnicode entry, so extractors split words.
+    return REGULAR_SPACE.join(escape(part) for part in text.split(" "))
 
 
 def contact_items(config: Config) -> list[tuple[str, str | None]]:
@@ -31,43 +39,46 @@ def contact_items(config: Config) -> list[tuple[str, str | None]]:
     ]
 
 
+def contact_item_html(text: str, href: str | None) -> str:
+    return f'<a href="{escape(href)}">{text_html(text)}</a>' if href else text_html(text)
+
+
 def contact_html(config: Config) -> str:
-    spans = []
-    for text, href in contact_items(config):
-        content = f'<a href="{escape(href)}">{escape(text)}</a>' if href else escape(text)
-        spans.append(f"<span>{content}</span>")
-    return f'<div class="contact">{"".join(spans)}</div>'
+    spans = CONTACT_SEPARATOR.join(
+        f'<span class="item">{contact_item_html(*item)}</span>' for item in contact_items(config)
+    )
+    return f'<div class="contact">{spans}</div>'
 
 
 def header_html(config: Config, headline: str = "") -> str:
-    parts = [f'<div class="name">{escape(config.name)}</div>', contact_html(config)]
+    parts = [f'<div class="name">{text_html(config.name)}</div>', contact_html(config)]
     if headline:
-        parts.append(f'<div class="headline">{escape(headline)}</div>')
+        parts.append(f'<div class="headline">{text_html(headline)}</div>')
     return f"<header>{''.join(parts)}</header>"
 
 
 def labelled_html(text: str) -> str:
     label, separator, rest = text.partition(": ")
     if not separator:
-        return escape(text)
-    return f'<span class="skill-label">{escape(label)}:</span> {escape(rest)}'
+        return text_html(text)
+    return f'<span class="skill-label">{text_html(label)}:</span> {text_html(rest)}'
 
 
 def section_html(section: Section) -> str:
-    parts = [f"<h2>{escape(section.title)}</h2>"]
+    parts = [f"<h2>{text_html(section.title)}</h2>"]
     for role in section.roles:
-        bullets = "".join(f"<li>{escape(bullet)}</li>" for bullet in role.bullets)
+        bullets = "".join(f"<li>{text_html(bullet)}</li>" for bullet in role.bullets)
         parts.append(
             '<div class="role">'
-            f'<div class="role-title">{escape(role.title)}</div>'
-            f'<div class="role-subtitle">{escape(role.subtitle)}</div>'
+            f'<div class="role-title">{text_html(role.title)}</div>'
+            f'<div class="role-subtitle">{text_html(role.subtitle)}</div>'
             f"{f'<ul>{bullets}</ul>' if bullets else ''}"
             "</div>"
         )
     if section.items:
         rows = "".join(f"<div>{labelled_html(item)}</div>" for item in section.items)
         parts.append(f'<div class="skills">{rows}</div>')
-    parts.extend(f'<div class="paragraph">{escape(text)}</div>' for text in section.paragraphs)
+    parts.extend(f'<div class="paragraph">{text_html(text)}</div>' for text in section.paragraphs)
     return f"<section>{''.join(parts)}</section>"
 
 
@@ -82,6 +93,22 @@ def page_html(title: str, body: str) -> str:
 def resume_html(resume: Resume, config: Config) -> str:
     sections = "".join(section_html(section) for section in resume.sections)
     return page_html(f"{config.name} Resume", header_html(config, resume.headline) + sections)
+
+
+def cover_letter_html(letter: CoverLetter, config: Config) -> str:
+    paragraphs = "".join(f"<p>{text_html(text)}</p>" for text in letter.paragraphs)
+    signature_lines = [
+        text_html(letter.closing),
+        text_html(config.name),
+        *(contact_item_html(*item) for item in contact_items(config)),
+    ]
+    signature = f"<p>{'<br>'.join(signature_lines)}</p>"
+    body = (
+        header_html(config)
+        + f"<h2>{text_html(letter.title)}</h2>"
+        + f'<div class="letter">{paragraphs}{signature}</div>'
+    )
+    return page_html(f"{config.name} {letter.title}", body)
 
 
 def render_pdf(html: str, output: Path) -> None:

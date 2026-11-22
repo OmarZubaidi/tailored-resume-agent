@@ -46,6 +46,16 @@ class Resume:
         return [line for line in lines if line]
 
 
+@dataclass
+class CoverLetter:
+    title: str
+    paragraphs: list[str]
+    closing: str
+
+    def text_lines(self) -> list[str]:
+        return [line for line in [self.title, *self.paragraphs, self.closing] if line]
+
+
 def split_front_matter(text: str) -> tuple[dict, list[str]]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != FRONT_MATTER_DELIMITER:
@@ -97,6 +107,24 @@ def parse_resume(text: str) -> Resume:
             role = None
 
     return Resume(headline=headline, sections=sections)
+
+
+def parse_cover_letter(text: str) -> CoverLetter:
+    meta, lines = split_front_matter(text)
+    blocks: list[list[str]] = [[]]
+    for line in lines:
+        if line.strip():
+            blocks[-1].append(line.strip())
+        elif blocks[-1]:
+            blocks.append([])
+    paragraphs = [" ".join(block) for block in blocks if block]
+    if len(paragraphs) < 2:
+        raise DocumentError("Cover letter needs body paragraphs and a closing line")
+    return CoverLetter(
+        title=str(meta.get("title", "Cover Letter")),
+        paragraphs=paragraphs[:-1],
+        closing=paragraphs[-1],
+    )
 
 
 def date_problems(lines: list[str], today: date | None = None) -> list[str]:

@@ -1,11 +1,20 @@
 import re
+from html import escape
 from pathlib import Path
 
 import pytest
 
 from resume_agent.config import Config
-from resume_agent.documents import parse_resume
-from resume_agent.render import CSS, RenderError, render_pdf, resume_html
+from resume_agent.documents import parse_cover_letter, parse_resume
+from resume_agent.render import (
+    CSS,
+    REGULAR_SPACE,
+    RenderError,
+    cover_letter_html,
+    render_pdf,
+    resume_html,
+    text_html,
+)
 
 CHROME = Path("/Applications/Google Chrome.app")
 needs_chrome = pytest.mark.skipif(not CHROME.exists(), reason="Google Chrome not installed")
@@ -32,15 +41,32 @@ def test_ligatures_disabled():
     assert '"liga" 0, "clig" 0, "dlig" 0' in CSS
 
 
+def test_text_html_uses_regular_weight_spaces():
+    assert text_html("a <b> c") == f"a{REGULAR_SPACE}&lt;b&gt;{REGULAR_SPACE}c"
+
+
 def test_resume_html_escapes_and_contains_contact(config):
-    html = resume_html(parse_resume(RESUME), config)
+    html = resume_html(parse_resume(RESUME), config).replace(REGULAR_SPACE, " ")
 
     assert "Built &lt;fast&gt; Lambdas &amp; tests." in html
-    assert f'<a href="mailto:{config.email}">{config.email}</a>' in html
+    email_link = f'<a href="mailto:{config.email}">{config.email}</a>'
+    assert f'<span class="item">{email_link}</span> | ' in html
     assert config.phone in html
     assert config.location in html
     assert '<span class="skill-label">Languages:</span> TypeScript, Python' in html
     assert "Software Engineer · TypeScript" in html
+
+
+def test_cover_letter_html_has_signature_block(config):
+    letter = parse_cover_letter("Dear Hiring Manager,\n\nI build things.\n\nBest,\n")
+
+    html = cover_letter_html(letter, config).replace(REGULAR_SPACE, " ")
+
+    assert "<h2>Cover Letter</h2>" in html
+    assert "<p>I build things.</p>" in html
+    assert f"<p>Best,<br>{config.name}<br>" in html
+    linkedin = escape(config.links.linkedin)
+    assert f'<a href="https://{linkedin}">{linkedin}</a></p>' in html
 
 
 @needs_chrome
