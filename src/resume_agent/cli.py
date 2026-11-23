@@ -38,6 +38,7 @@ from resume_agent.pipeline import (
     render_folder,
     tailor_folder,
     triage_folder,
+    unmatched_drop_companies,
 )
 from resume_agent.render import RenderError
 from resume_agent.stages import (
@@ -94,6 +95,17 @@ def llm_runner(config: Config) -> Callable[[str], str]:
 def config_check() -> None:
     """Validate the config file."""
     config = load_config_or_exit()
+    try:
+        unmatched = unmatched_drop_companies(config)
+    except DocumentError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+    if unmatched:
+        typer.echo(
+            f"junior_listing.drop_companies: no baseline role at {', '.join(unmatched)}",
+            err=True,
+        )
+        raise typer.Exit(1)
     typer.echo(f"Config OK. data_root: {config.data_root}")
 
 

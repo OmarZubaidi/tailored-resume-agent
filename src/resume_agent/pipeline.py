@@ -247,6 +247,19 @@ def junior_companies(
     return junior.drop_companies
 
 
+def unmatched_drop_companies(config: Config) -> list[str]:
+    companies = {
+        role.company.lower()
+        for path in (config.data_root / BASELINES_DIR).glob(f"*/{RESUME_SOURCE}")
+        for role in experience_roles(parse_resume(path.read_text()))
+    }
+    return [
+        company
+        for company in config.junior_listing.drop_companies
+        if company.lower() not in companies
+    ]
+
+
 def junior_drops(
     resume: Resume, folder: Path, listing_text: str, config: Config, run: Callable[[str], str]
 ) -> tuple[list[str], list[str]]:

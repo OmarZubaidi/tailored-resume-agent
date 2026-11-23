@@ -194,6 +194,38 @@ def test_config_check_command_reports_errors(config_data, write_config):
     assert "not a valid email address" in result.output
 
 
+@pytest.mark.parametrize(
+    ("company", "exit_code"),
+    [
+        ("globex", 0),
+        ("Globecks", 1),
+    ],
+)
+def test_config_check_matches_drop_companies_to_baseline_roles(
+    config_data, write_config, data_root, company, exit_code
+):
+    baseline = data_root / "baselines/general"
+    baseline.mkdir(parents=True)
+    (baseline / "resume.md").write_text(
+        "---\nheadline: Engineer\n---\n## Experience\n### Engineer @ Globex, 01/2020 - present\n"
+    )
+    write_config(
+        {
+            **config_data,
+            "junior_listing": {
+                "max_years": 4,
+                "drop_companies": [company],
+            },
+        }
+    )
+
+    result = CliRunner().invoke(app, ["config", "check"])
+
+    assert result.exit_code == exit_code
+    if exit_code:
+        assert "drop_companies: no baseline role at Globecks" in result.output
+
+
 def test_config_check_command_ok(config_data, write_config):
     write_config(config_data)
 
