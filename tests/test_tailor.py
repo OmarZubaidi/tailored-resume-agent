@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from resume_agent.documents import parse_resume
+from resume_agent.documents import Role, parse_resume
 from resume_agent.ledger import load_ledger
 from resume_agent.tailor import (
     TailorError,
@@ -11,8 +11,10 @@ from resume_agent.tailor import (
     build_bank,
     diff_markdown,
     drop_lowest_bullet,
+    experience_roles,
     ledger_summary,
     numbers,
+    without_roles,
 )
 
 CURRENT = "Software Engineer @ Acme Health, 01/2023 - present"
@@ -104,6 +106,26 @@ def test_bank_merges_baseline_and_extra_without_duplicates(bank):
         ("B3", "Built 100+ A"),
     ]
     assert bank_markdown(bank).startswith(f"### {CURRENT}\n- B1: Built dozens")
+
+
+def test_without_roles_drops_roles_by_company():
+    trimmed = without_roles(BASELINE, ["globex"])
+
+    assert [role.title for role in experience_roles(trimmed)] == [CURRENT]
+    assert [role.title for role in experience_roles(BASELINE)] == [CURRENT, EARLIER]
+
+
+@pytest.mark.parametrize(
+    ("title", "company"),
+    [
+        (CURRENT, "Acme Health"),
+        ("Engineer @ Acme, Inc., 01/2020 - 05/2022", "Acme, Inc."),
+        ("Engineer @ Globex", "Globex"),
+        ("Freelance", ""),
+    ],
+)
+def test_role_company(title, company):
+    assert Role(title).company == company
 
 
 def test_ledger_summary(ledger):

@@ -23,6 +23,7 @@ from resume_agent.cover_letter import write_cover_letter
 from resume_agent.data_root import BASELINES_DIR
 from resume_agent.documents import (
     DocumentError,
+    Resume,
     open_placeholders,
     parse_cover_letter,
     parse_resume,
@@ -50,9 +51,17 @@ from resume_agent.tailor import (
     build_bank,
     diff_markdown,
     drop_lowest_bullet,
+    experience_roles,
     ledger_summary,
+    without_roles,
 )
-from resume_agent.triage import TRIAGE_MD, Triage, add_fit, triage_listing
+from resume_agent.triage import (
+    TRIAGE_MD,
+    Triage,
+    add_fit,
+    extract_requirements,
+    triage_listing,
+)
 
 TAILOR_ERRORS = (
     BrowserError,
@@ -224,6 +233,33 @@ def detect_mode(listing_text: str, config: Config) -> Mode:
     return Mode.UPWARD if any(mentions(term, listing_text) for term in keywords) else Mode.LATERAL
 
 
+def junior_companies(listing_text: str, config: Config, run: Callable[[str], str]) -> list[str]:
+    junior = config.junior_listing
+    if not junior.drop_companies:
+        return []
+    years_max = extract_requirements(run, listing_text).years_max
+    if years_max is None or years_max > junior.max_years:
+        return []
+    return junior.drop_companies
+
+
+def junior_drops(
+    resume: Resume, listing_text: str, config: Config, run: Callable[[str], str]
+) -> tuple[list[str], list[str]]:
+    try:
+        companies = junior_companies(listing_text, config, run)
+    except (LlmError, PromptError) as error:
+        return [], [f"Junior listing check skipped: {error}"]
+    kept = experience_roles(without_roles(resume, companies))
+    removed = [role.company for role in experience_roles(resume) if role not in kept]
+    if not removed:
+        return [], []
+    max_years = config.junior_listing.max_years
+    return companies, [
+        f"Dropped for a listing capped at {max_years} years or fewer: {', '.join(removed)}"
+    ]
+
+
 def notes_markdown(baseline: str, mode: Mode, config: Config, today: date) -> str:
     return "\n".join(
         [
@@ -250,9 +286,13 @@ def tailor_folder(
     source = baseline_dir(config, baseline)
     listing = read_listing(folder / LISTING_MD)
     ledger = load_ledger(source / LEDGER_FILE)
-    baseline_resume = parse_resume((source / RESUME_SOURCE).read_text())
+    full_resume = parse_resume((source / RESUME_SOURCE).read_text())
+    dropped, junior_flags = junior_drops(full_resume, listing.text, config, run)
+    baseline_resume = without_roles(full_resume, dropped)
     bank_path = source / BANK_FILE
-    extra = parse_resume(bank_path.read_text()) if bank_path.is_file() else None
+    extra = (
+        without_roles(parse_resume(bank_path.read_text()), dropped) if bank_path.is_file() else None
+    )
     bank = build_bank(baseline_resume, extra)
     mode = mode or detect_mode(listing.text, config)
 
@@ -268,6 +308,7 @@ def tailor_folder(
         tailoring_rules=optional_text(config.data_root / TAILORING_RULES, NO_EXTRA_RULES),
     )
     tailored = apply_plan(parse_json_reply(run(prompt)), baseline_resume, bank, ledger)
+    tailored.flags.extend(junior_flags)
     letter = write_cover_letter(
         run,
         listing.text,

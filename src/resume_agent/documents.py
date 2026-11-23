@@ -12,6 +12,7 @@ WHOLE_MONTH_YEAR = re.compile(rf"^{MONTH_YEAR}$")
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\]")
 ANY_MONTH_YEAR = re.compile(r"\b\d{1,2}/\d{4}\b")
 FORBIDDEN_DASHES = ("–", "—")
+ROLE_SEPARATOR = " @ "
 
 
 class DocumentError(Exception):
@@ -23,6 +24,11 @@ class Role:
     title: str
     subtitle: str = ""
     bullets: list[str] = field(default_factory=list)
+
+    @property
+    def company(self) -> str:
+        rest = self.title.partition(ROLE_SEPARATOR)[2]
+        return (rest.rpartition(",")[0] if DATE_RANGE.search(rest) else rest).strip()
 
 
 @dataclass
