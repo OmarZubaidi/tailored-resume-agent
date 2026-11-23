@@ -7,12 +7,15 @@ from resume_agent.config import Config
 from resume_agent.job_listing import Listing
 from resume_agent.llm import LlmError
 from resume_agent.triage import (
+    YEARS_FILE,
     Requirements,
     add_fit,
     company_from_url,
     extract_requirements,
     job_board,
+    listing_years_max,
     posting_age,
+    save_years,
     sentences,
     triage_listing,
 )
@@ -171,6 +174,45 @@ def test_extract_requirements():
     requirements = extract_requirements(fit_reply(3, ["Go"], ["BS in CS"]), "LISTING")
 
     assert requirements == Requirements(3, ["Go"], ["BS in CS"])
+
+
+def test_extract_requirements_reads_the_top_of_a_range():
+    reply = '{"years_required": 2, "years_max": 4, "required_skills": []}'
+
+    assert extract_requirements(lambda _: reply, "LISTING").years_max == 4
+
+
+def test_fit_check_saves_years_for_tailoring(config, ledger_path, tmp_path):
+    result = triage_listing(listing("Remote."), config, TODAY)
+    reply = json.dumps({"years_max": 4})
+    add_fit(result, "LISTING", ledger_path, lambda _: reply)
+
+    save_years(tmp_path, result)
+
+    assert listing_years_max(tmp_path, "LISTING", lambda _: "not called") == 4
+
+
+def test_skipped_fit_check_clears_saved_years(config, tmp_path):
+    (tmp_path / YEARS_FILE).write_text('{"years_max": 4}')
+
+    save_years(tmp_path, triage_listing(listing("Remote."), config, TODAY))
+
+    assert not (tmp_path / YEARS_FILE).exists()
+
+
+@pytest.mark.parametrize("saved", ['{"years_max": 4', "[4]"])
+def test_unreadable_saved_years_asks_again(tmp_path, saved):
+    (tmp_path / YEARS_FILE).write_text(saved)
+    reply = json.dumps({"years_max": 3})
+
+    assert listing_years_max(tmp_path, "LISTING", lambda _: reply) == 3
+
+
+@pytest.mark.parametrize("years_max", [True, "4", None])
+def test_years_max_that_is_not_a_number_is_none(years_max):
+    reply = json.dumps({"years_max": years_max})
+
+    assert extract_requirements(lambda _: reply, "LISTING").years_max is None
 
 
 def test_company_and_role_come_from_the_listing(config, ledger_path):

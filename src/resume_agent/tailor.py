@@ -52,6 +52,17 @@ def experience_roles(resume: Resume | None) -> list[Role]:
     return found.roles if found else []
 
 
+def without_roles(resume: Resume, companies: list[str]) -> Resume:
+    dropped = {company.lower() for company in companies}
+    sections = [
+        replace(item, roles=[role for role in item.roles if role.company.lower() not in dropped])
+        if item.title == EXPERIENCE_SECTION
+        else item
+        for item in resume.sections
+    ]
+    return replace(resume, sections=sections)
+
+
 def build_bank(baseline: Resume, extra: Resume | None = None) -> list[BankBullet]:
     bank: list[BankBullet] = []
     seen: set[tuple[str, str]] = set()

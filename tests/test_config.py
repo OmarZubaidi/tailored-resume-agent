@@ -194,6 +194,41 @@ def test_config_check_command_reports_errors(config_data, write_config):
     assert "not a valid email address" in result.output
 
 
+@pytest.mark.parametrize(
+    ("company", "move_to", "unmatched"),
+    [
+        ("globex", "Globex", ""),
+        ("Globecks", None, "Globecks"),
+        ("Globex", "Initech", "Initech"),
+    ],
+)
+def test_config_check_matches_junior_companies_to_baseline_roles(
+    config_data, write_config, data_root, company, move_to, unmatched
+):
+    baseline = data_root / "baselines/general"
+    baseline.mkdir(parents=True)
+    (baseline / "resume.md").write_text(
+        "---\nheadline: Engineer\n---\n## Experience\n### Engineer @ Globex, 01/2020 - present\n"
+    )
+    write_config(
+        {
+            **config_data,
+            "junior_listing": {
+                "max_years": 4,
+                "drop_companies": [company],
+                "move_skills_to": move_to,
+                "max_moved_months": 3,
+            },
+        }
+    )
+
+    result = CliRunner().invoke(app, ["config", "check"])
+
+    assert result.exit_code == (1 if unmatched else 0)
+    if unmatched:
+        assert f"junior_listing: no baseline role at {unmatched}" in result.output
+
+
 def test_config_check_command_ok(config_data, write_config):
     write_config(config_data)
 

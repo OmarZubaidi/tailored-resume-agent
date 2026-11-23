@@ -4,7 +4,7 @@ from pathlib import Path
 
 from resume_agent.browser import browser_page
 from resume_agent.config import Config
-from resume_agent.documents import CoverLetter, Resume, Role, Section
+from resume_agent.documents import ROLE_SEPARATOR, CoverLetter, Resume, Role, Section
 
 CSS = files("resume_agent").joinpath("templates/document.css").read_text()
 CONTENT_WIDTH_PX = 720
@@ -17,7 +17,6 @@ COUNT_CONTACT_ROWS_JS = """
 REGULAR_SPACE = '<span class="space"> </span>'
 CONTACT_SEPARATOR_TEXT = "|"
 CONTACT_SEPARATOR = f" {CONTACT_SEPARATOR_TEXT} "
-ROLE_SEPARATOR = " @ "
 
 
 class RenderError(Exception):

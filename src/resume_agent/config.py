@@ -45,6 +45,13 @@ class LlmConfig(StrictModel):
     model: str | None
 
 
+class JuniorListing(StrictModel):
+    max_years: int
+    drop_companies: list[str]
+    move_skills_to: str | None
+    max_moved_months: int
+
+
 class Config(StrictModel):
     data_root: Path
     excel_template: Path
@@ -56,6 +63,7 @@ class Config(StrictModel):
     home_industry: str
     industry_keywords: dict[str, list[str]]
     default_baseline: str
+    junior_listing: JuniorListing
     apply_on_my_behalf: bool
     llm: LlmConfig
 

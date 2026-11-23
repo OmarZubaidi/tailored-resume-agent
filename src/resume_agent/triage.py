@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from resume_agent.llm import LlmError
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, text_value
 
 TRIAGE_MD = "triage.md"
+YEARS_FILE = "years.json"
 MAX_MISSING_SKILLS = 2
 STALE_AFTER = timedelta(hours=72)
 JOB_BOARDS = (
@@ -71,6 +73,7 @@ class Triage:
     fit_checked: bool = False
     company: str = ""
     role: str = ""
+    years_max: int | None = None
 
     @property
     def flagged(self) -> bool:
@@ -108,19 +111,42 @@ class Requirements:
     other_requirements: list[str]
     company: str = ""
     role: str = ""
+    years_max: int | None = None
 
 
 def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requirements:
     data = parse_json_reply(run(render_prompt("triage-fit", listing=listing_text)))
-    years = data.get("years_required")
-    valid_years = isinstance(years, int | float) and not isinstance(years, bool)
     return Requirements(
-        years_required=int(years) if valid_years else None,
+        years_required=whole_number(data.get("years_required")),
         required_skills=string_list(data.get("required_skills")),
         other_requirements=string_list(data.get("other_requirements")),
         company=text_value(data.get("company")),
         role=text_value(data.get("role")),
+        years_max=whole_number(data.get("years_max")),
     )
+
+
+def save_years(folder: Path, triage: Triage) -> None:
+    path = folder / YEARS_FILE
+    if triage.fit_checked:
+        path.write_text(json.dumps({"years_max": triage.years_max}))
+    else:
+        path.unlink(missing_ok=True)
+
+
+def listing_years_max(folder: Path, listing_text: str, run: Callable[[str], str]) -> int | None:
+    try:
+        saved = json.loads((folder / YEARS_FILE).read_text())
+    except (FileNotFoundError, ValueError):
+        saved = None
+    if isinstance(saved, dict):
+        return whole_number(saved.get("years_max"))
+    return extract_requirements(run, listing_text).years_max
+
+
+def whole_number(value: object) -> int | None:
+    valid = isinstance(value, int | float) and not isinstance(value, bool)
+    return int(value) if valid else None
 
 
 def string_list(value: object) -> list[str]:
@@ -144,6 +170,7 @@ def apply_fit(triage: Triage, requirements: Requirements, ledger: Ledger) -> Tri
         message = f"{len(missing)} required skills not in the ledger: {', '.join(missing)}"
         (triage.flags if len(missing) > MAX_MISSING_SKILLS else triage.notes).append(message)
     triage.notes.extend(f"Requirement: {item}" for item in requirements.other_requirements)
+    triage.years_max = requirements.years_max
     triage.fit_checked = True
     return triage
 

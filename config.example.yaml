@@ -11,6 +11,11 @@ home_industry: healthcare
 industry_keywords:
   healthcare: [FHIR, EHR, HL7, X12, ERA, claims, revenue cycle, telemedicine, patient, insurance eligibility]
 default_baseline: general
+junior_listing:
+  max_years: 4
+  drop_companies: []
+  move_skills_to: null
+  max_moved_months: 3
 apply_on_my_behalf: false
 llm:
   provider: claude-code
