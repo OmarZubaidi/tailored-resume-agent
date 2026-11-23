@@ -12,6 +12,7 @@ from resume_agent.job_listing import (
     ListingError,
     clean_text,
     fetch_listing,
+    mentions_title,
     save_listing,
 )
 from resume_agent.ocr import ocr_pdf
@@ -62,7 +63,7 @@ def agreement(extracted: str, ocr_text: str) -> float:
 def validate_text(title: str, text: str) -> Validation:
     lowered = text.lower()
     words = word_count(text)
-    has_title = bool(title.strip()) and title.strip().lower() in lowered
+    has_title = mentions_title(title, text)
     sections = [signal for signal in SECTION_SIGNALS if signal in lowered]
 
     if not (has_title and sections) or words < MIN_WORDS:

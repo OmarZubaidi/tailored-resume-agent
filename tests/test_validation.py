@@ -114,6 +114,18 @@ def test_title_match_is_case_insensitive():
     assert result.has_signals
 
 
+def test_title_match_ignores_punctuation_and_line_breaks():
+    text = listing_text(SOFT_MIN_WORDS).replace(TITLE, "Senior Software\nEngineer, Remote")
+
+    assert validate_text("Senior Software Engineer (Remote)", text).has_title
+
+
+def test_title_match_needs_whole_words():
+    assert not validate_text(
+        "Engineer", listing_text(SOFT_MIN_WORDS).replace(TITLE, "Engineering")
+    ).has_title
+
+
 def make_listing(text: str) -> Listing:
     return Listing(source="https://example.com/job", title=TITLE, text=text)
 

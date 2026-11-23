@@ -17,6 +17,7 @@ from resume_agent.job_listing import (
     clean_text,
     fetch_listing,
     listing_from_pdf,
+    mentions_title,
     read_listing,
 )
 
@@ -80,6 +81,53 @@ def not_found_url():
 def test_http_error_page_is_rejected(tmp_path, not_found_url):
     with pytest.raises(ListingError, match="HTTP 404"):
         fetch_listing(not_found_url, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("title", "text", "expected"),
+    [
+        ("C++ Developer", "We need a C Developer.", False),
+        ("C# Engineer", "Hiring a C# engineer now.", True),
+        ("Senior Engineer (Remote)", "Senior Engineer, Remote role", True),
+        ("Engineer", "Engineering team", False),
+        ("", "anything", False),
+        ("---", "anything", False),
+    ],
+)
+def test_mentions_title(title, text, expected):
+    assert mentions_title(title, text) is expected
+
+
+@needs_browser
+def test_title_without_a_match_falls_back_to_the_visible_heading(tmp_path):
+    page = tmp_path / "job.html"
+    page.write_text(PAGE.replace("<main>", "<h1>Acme Careers</h1><main>"))
+    page.write_text(page.read_text().replace("<h1>Senior Software Engineer</h1>", ""))
+
+    assert fetch_listing(page.as_uri(), tmp_path / "out").title == "Acme Careers"
+
+
+@needs_browser
+def test_hidden_heading_is_skipped_for_the_visible_title(tmp_path):
+    page = tmp_path / "job.html"
+    hidden = '<h1 style="display:none">Join our talent community today</h1>'
+    page.write_text(PAGE.replace("<main>", f"{hidden}<main>"))
+
+    assert fetch_listing(page.as_uri(), tmp_path / "out").title == "Senior Software Engineer"
+
+
+@needs_browser
+def test_heading_outside_the_content_falls_back_to_og_title(tmp_path):
+    page = tmp_path / "job.html"
+    og = '<meta property="og:title" content="Senior Software Engineer">'
+    moved = (
+        PAGE.replace("<h1>Senior Software Engineer</h1>", "<p>Senior Software Engineer</p>")
+        .replace("<nav>", "<h1>Acme Careers</h1><nav>")
+        .replace("</head>", f"{og}</head>")
+    )
+    page.write_text(moved)
+
+    assert fetch_listing(page.as_uri(), tmp_path / "out").title == "Senior Software Engineer"
 
 
 @needs_browser
