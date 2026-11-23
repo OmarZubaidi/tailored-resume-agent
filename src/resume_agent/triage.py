@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -12,6 +13,7 @@ from resume_agent.llm import LlmError
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, text_value
 
 TRIAGE_MD = "triage.md"
+YEARS_FILE = "years.json"
 MAX_MISSING_SKILLS = 2
 STALE_AFTER = timedelta(hours=72)
 JOB_BOARDS = (
@@ -71,6 +73,7 @@ class Triage:
     fit_checked: bool = False
     company: str = ""
     role: str = ""
+    years_max: int | None = None
 
     @property
     def flagged(self) -> bool:
@@ -123,6 +126,18 @@ def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requir
     )
 
 
+def save_years(folder: Path, triage: Triage) -> None:
+    if triage.fit_checked:
+        (folder / YEARS_FILE).write_text(json.dumps({"years_max": triage.years_max}))
+
+
+def listing_years_max(folder: Path, listing_text: str, run: Callable[[str], str]) -> int | None:
+    path = folder / YEARS_FILE
+    if path.is_file():
+        return whole_number(json.loads(path.read_text()).get("years_max"))
+    return extract_requirements(run, listing_text).years_max
+
+
 def whole_number(value: object) -> int | None:
     valid = isinstance(value, int | float) and not isinstance(value, bool)
     return int(value) if valid else None
@@ -149,6 +164,7 @@ def apply_fit(triage: Triage, requirements: Requirements, ledger: Ledger) -> Tri
         message = f"{len(missing)} required skills not in the ledger: {', '.join(missing)}"
         (triage.flags if len(missing) > MAX_MISSING_SKILLS else triage.notes).append(message)
     triage.notes.extend(f"Requirement: {item}" for item in requirements.other_requirements)
+    triage.years_max = requirements.years_max
     triage.fit_checked = True
     return triage
 

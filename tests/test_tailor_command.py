@@ -18,6 +18,7 @@ from resume_agent.pipeline import (
     junior_drops,
     tailor_folder,
 )
+from resume_agent.triage import YEARS_FILE
 
 CURRENT = "Software Engineer @ Acme Health, 01/2023 - present"
 EARLIER = "Junior Engineer @ Globex, 05/2021 - 08/2022"
@@ -102,6 +103,10 @@ def years_reply(years_max: int | None):
     return lambda _: json.dumps({"years_max": years_max})
 
 
+def no_call(prompt: str) -> str:
+    raise AssertionError("no requirements call expected")
+
+
 def junior_run(prompt: str) -> str:
     if "hard requirements" in prompt:
         return years_reply(4)(prompt)
@@ -140,26 +145,33 @@ def test_detect_mode(config, listing, mode):
         (None, []),
     ],
 )
-def test_junior_listing_drops_companies(junior_config, years_max, dropped):
-    assert junior_companies("LISTING", junior_config, years_reply(years_max)) == dropped
+def test_junior_listing_drops_companies(junior_config, folder, years_max, dropped):
+    assert junior_companies(folder, "LISTING", junior_config, years_reply(years_max)) == dropped
 
 
-def test_junior_listing_without_companies_skips_the_llm(config):
-    def no_call(prompt: str) -> str:
-        raise AssertionError("no requirements call expected")
-
-    assert junior_companies("LISTING", config, no_call) == []
+def test_junior_listing_without_companies_skips_the_llm(config, folder):
+    assert junior_companies(folder, "LISTING", config, no_call) == []
 
 
-def test_junior_check_failure_keeps_every_role(junior_config):
-    companies, flags = junior_drops(parse_resume(RESUME), "LISTING", junior_config, lambda _: "no")
+def test_junior_listing_reuses_the_years_saved_by_triage(junior_config, folder):
+    (folder / YEARS_FILE).write_text(json.dumps({"years_max": 4}))
+
+    assert junior_companies(folder, "LISTING", junior_config, no_call) == ["Globex"]
+
+
+def test_junior_check_failure_keeps_every_role(junior_config, folder):
+    resume = parse_resume(RESUME)
+
+    companies, flags = junior_drops(resume, folder, "LISTING", junior_config, lambda _: "no")
 
     assert companies == []
     assert flags[0].startswith("Junior listing check skipped:")
 
 
-def test_junior_company_missing_from_the_baseline_is_not_flagged(junior_config):
-    assert junior_drops(parse_resume(RESUME), "LISTING", junior_config, years_reply(4)) == ([], [])
+def test_junior_company_missing_from_the_baseline_is_not_flagged(junior_config, folder):
+    resume = parse_resume(RESUME)
+
+    assert junior_drops(resume, folder, "LISTING", junior_config, years_reply(4)) == ([], [])
 
 
 @needs_browser

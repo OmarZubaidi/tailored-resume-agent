@@ -59,7 +59,8 @@ from resume_agent.triage import (
     TRIAGE_MD,
     Triage,
     add_fit,
-    extract_requirements,
+    listing_years_max,
+    save_years,
     triage_listing,
 )
 
@@ -116,6 +117,7 @@ def triage_folder(
     ledger_path = baseline_dir(config, baseline or config.default_baseline) / LEDGER_FILE
     add_fit(triage, listing.text, ledger_path, run)
     (folder / TRIAGE_MD).write_text(triage.markdown())
+    save_years(folder, triage)
     return triage
 
 
@@ -233,21 +235,23 @@ def detect_mode(listing_text: str, config: Config) -> Mode:
     return Mode.UPWARD if any(mentions(term, listing_text) for term in keywords) else Mode.LATERAL
 
 
-def junior_companies(listing_text: str, config: Config, run: Callable[[str], str]) -> list[str]:
+def junior_companies(
+    folder: Path, listing_text: str, config: Config, run: Callable[[str], str]
+) -> list[str]:
     junior = config.junior_listing
     if not junior.drop_companies:
         return []
-    years_max = extract_requirements(run, listing_text).years_max
+    years_max = listing_years_max(folder, listing_text, run)
     if years_max is None or years_max > junior.max_years:
         return []
     return junior.drop_companies
 
 
 def junior_drops(
-    resume: Resume, listing_text: str, config: Config, run: Callable[[str], str]
+    resume: Resume, folder: Path, listing_text: str, config: Config, run: Callable[[str], str]
 ) -> tuple[list[str], list[str]]:
     try:
-        companies = junior_companies(listing_text, config, run)
+        companies = junior_companies(folder, listing_text, config, run)
     except (LlmError, PromptError) as error:
         return [], [f"Junior listing check skipped: {error}"]
     kept = experience_roles(without_roles(resume, companies))
@@ -287,7 +291,7 @@ def tailor_folder(
     listing = read_listing(folder / LISTING_MD)
     ledger = load_ledger(source / LEDGER_FILE)
     full_resume = parse_resume((source / RESUME_SOURCE).read_text())
-    dropped, junior_flags = junior_drops(full_resume, listing.text, config, run)
+    dropped, junior_flags = junior_drops(full_resume, folder, listing.text, config, run)
     baseline_resume = without_roles(full_resume, dropped)
     bank_path = source / BANK_FILE
     extra = (
