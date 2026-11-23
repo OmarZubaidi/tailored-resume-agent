@@ -88,6 +88,7 @@ ATS_REPORT = "ats-report.md"
 DIFF_FILE = "diff.md"
 TAILORING_RULES = "tailoring-rules.md"
 VOICE_FILE = "style/voice.md"
+STORY_NOTES = "story-notes.md"
 NO_EXTRA_RULES = "None."
 
 
@@ -311,6 +312,7 @@ def cover_letter_for(
         (source / COVER_LETTER_SOURCE).read_text(),
         ledger,
         optional_text(config.data_root / VOICE_FILE, ""),
+        optional_text(source / STORY_NOTES, ""),
     )
 
 

@@ -95,6 +95,21 @@ def test_letter_uses_voice_and_baseline_resume_without_a_tailored_one(prompts, l
     assert "Built dozens of AWS Lambda functions." in prompts[0]
 
 
+def test_letter_includes_story_notes(prompts, listing_folder, data_root):
+    notes = "## Fax product\n\n- Why it exists: cheapest HIPAA-compliant channel."
+    (data_root / "baselines/general/story-notes.md").write_text(notes)
+
+    CliRunner().invoke(app, ["letter", str(listing_folder)])
+
+    assert "cheapest HIPAA-compliant channel" in prompts[0]
+
+
+def test_letter_without_story_notes_says_so(prompts, listing_folder):
+    CliRunner().invoke(app, ["letter", str(listing_folder)])
+
+    assert "Tell stories from the resume's facts alone." in prompts[0]
+
+
 def test_letter_prefers_the_folder_resume(prompts, listing_folder):
     tailored = BASELINE_RESUME.replace("dozens of", "forty")
     (listing_folder / "resume.md").write_text(tailored)

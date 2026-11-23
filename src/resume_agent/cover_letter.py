@@ -25,6 +25,7 @@ STARTS_WITH_I = re.compile(r"I\b")
 MAX_I_RUN = 3
 YEARS_MENTION = re.compile(r"\b\w+\+? years?\b", re.IGNORECASE)
 NO_VOICE_NOTES = "None yet. Write in a plain, professional register."
+NO_STORY_NOTES = "None yet. Tell stories from the resume's facts alone."
 MAX_LETTER_WORDS = 320
 BANNED_WORDS = (
     "honestly",
@@ -165,6 +166,7 @@ def write_cover_letter(
     template: str,
     ledger: Ledger,
     voice: str = "",
+    stories: str = "",
 ) -> GeneratedLetter:
     years = years_in_words(ledger.experience_months())
     body = template_body(template)
@@ -177,6 +179,7 @@ def write_cover_letter(
         resume=resume_markdown,
         template=body,
         voice=voice.strip() or NO_VOICE_NOTES,
+        stories=stories.strip() or NO_STORY_NOTES,
         max_words=str(max_words),
         banned_words=", ".join(f'"{word}"' for word in BANNED_WORDS),
     )
