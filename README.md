@@ -37,6 +37,7 @@ The agent is for tailoring review and CV help. Open any coding agent (Claude Cod
 | "status of 42" | Reads application 00042's timeline |
 | "switch home industry to finance" | Changes `home_industry` and its keywords in `config.yaml` |
 | "add a new baseline" | Copies the general baseline to a new one and edits it with you |
+| "draft a test cover letter for 42" | Writes a new cover letter draft into that folder's `drafts/` to check the voice |
 
 Several open applications at one company? The agent shows a short pick list and asks.
 
@@ -58,7 +59,9 @@ Several open applications at one company? The agent shows a short pick list and 
 4. **Data folder and workbook**: `.venv/bin/resume_agent init`.
 5. **Baseline**: put `resume.md`, `cover-letter.md` and `skills-ledger.yaml` in
    `baselines/general/` under `data_root` (`bullet-bank.md` is optional). Triage and tailoring need
-   them, so the first `inbox` run fails without them.
+   them, so the first `inbox` run fails without them. Two optional files shape cover letters:
+   `baselines/<name>/story-notes.md` (confirmed facts behind resume bullets, the only source for a
+   story's context) and `style/voice.md` (how you write).
 6. **Sync on save**: `.venv/bin/resume_agent dev install-sync` (a launchd agent watching the data
    folder; it also runs at login).
 
@@ -78,6 +81,7 @@ it as a Claude skill.
 | `render [FOLDER] [--baseline NAME] [--draft]` | Renders resume and cover letter PDFs plus the ATS report |
 | `fetch OUT_DIR --url URL \| --pdf FILE` | Saves, validates and triages one listing |
 | `tailor FOLDER [--baseline] [--mode]` | Tailors to a fetched listing, then renders |
+| `letter FOLDER [--baseline]` | Drafts only a cover letter into `FOLDER/drafts/cover-letter-NN.md` |
 | `sync` | Acts on stage dates, new Inbox rows and Decision cells in the workbook |
 | `inbox` | Processes every new or failed Inbox row |
 | `review proceed\|drop ID...` | Decides flagged Inbox jobs |
