@@ -3,15 +3,13 @@ from datetime import date
 import pytest
 
 from resume_agent.cover_letter import (
-    WORD_ALLOWANCE,
+    MAX_LETTER_WORDS,
     style_problems,
-    template_body,
     write_cover_letter,
     years_in_words,
 )
 from resume_agent.documents import DocumentError
 from resume_agent.ledger import load_ledger
-from resume_agent.validation import word_count
 
 TEMPLATE = """---
 title: Cover Letter
@@ -67,13 +65,33 @@ def test_years_in_words(months, words):
 @pytest.mark.parametrize(
     ("text", "problem"),
     [
-        ("I am genuinely excited.", "uses the word 'genuinely'"),
-        ("Honestly, I love APIs.", "uses the word 'Honestly'"),
+        ("I am genuinely glad.", "uses the banned phrase 'genuinely'"),
+        ("Honestly, I love APIs.", "uses the banned phrase 'Honestly'"),
+        ("I have a proven track record.", "uses the banned phrase 'proven track record'"),
+        ("A fast-paced team.", "uses the banned phrase 'fast-paced'"),
+        ("Let's make great things happen.", "uses the banned phrase 'great things happen'"),
+        ("Happy to circle back on it.", "uses the banned phrase 'circle back'"),
+        ("I spearheaded the migration.", "uses the banned phrase 'spearheaded'"),
+        ("That habit matters on ops tools.", "uses the banned phrase 'matters'"),
+        ("I leveraged Lambdas.", "uses the banned phrase 'leveraged'"),
+        ("We utilized pytest.", "uses the banned phrase 'utilized'"),
+        ("It empowers teams.", "uses the banned phrase 'empowers'"),
+        ("I am eagerly waiting.", "uses the banned phrase 'eagerly'"),
+        ("Exciting work.", "uses the banned phrase 'Exciting'"),
         ("It's not just code, it's craft.", "uses contrast framing"),
         ("It's not about speed, it's about care.", "uses contrast framing"),
         ("I bring not only skill, but grit.", "uses contrast framing"),
         ("Built it fast — and well.", "uses an en or em dash"),
+        ("On your stack: I know it.", "uses a colon: 'stack:'"),
+        ("I built it. I'm proud. I'd do it again.", "starts 3 sentences in a row with 'I'"),
         ("I like [Company Name].", "leaves the placeholder [Company Name]"),
+        ("i built the fax api.", "starts a sentence in lowercase: 'i'"),
+        ("I built it. then I tested it.", "starts a sentence in lowercase: 'then'"),
+        ("Dear team,\n\nhappy to talk.", "starts a sentence in lowercase: 'happy'"),
+        ("Since then i have shipped it.", "writes 'I' in lowercase"),
+        ("Glad to help, i'm free Monday.", "writes 'I' in lowercase"),
+        ("I dont mind on-call.", "drops the apostrophe in 'dont'"),
+        ("Im happy to talk.", "drops the apostrophe in 'Im'"),
     ],
 )
 def test_style_problems(text, problem):
@@ -84,6 +102,36 @@ def test_plain_writing_has_no_style_problems():
     assert style_problems("I'm not sure, but I built a fax (yes, that fax!) REST API.") == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I'm U.S. based and remote.",
+        "I hold a Ph.D. in hydraulics.",
+        "Free after 3 p.m. and on weekends.",
+        "Dr. Lee and Mr. Park reviewed it.",
+        "Tools (e.g. I shipped Playwright suites) helped. I did that. I also did this.",
+    ],
+)
+def test_abbreviations_do_not_start_sentences(text):
+    assert style_problems(text) == []
+
+
+def test_more_dropped_apostrophes():
+    problems = style_problems("Hes late. Theyve left. We couldve won.")
+
+    assert {problem.split()[-1] for problem in problems} == {"'Hes'", "'Theyve'", "'couldve'"}
+
+
+def test_two_sentences_starting_with_i_are_fine():
+    assert style_problems("I built it. I tested it. Then it shipped. I fixed one bug.") == []
+
+
+def test_abbreviations_and_mixed_case_names_pass_the_casing_check():
+    text = "I used tools, e.g. pytest, i.e. the usual. It ships at 9:30 on iOS.\n\nBest,\nJane"
+
+    assert style_problems(text) == []
+
+
 def test_generated_letter(ledger):
     run, prompts = scripted(LETTER)
 
@@ -91,7 +139,7 @@ def test_generated_letter(ledger):
 
     assert len(prompts) == 1
     assert "five" in prompts[0]
-    assert "Treat the template as a suggestion" in prompts[0]
+    assert "as a suggestion of shape and tone" in prompts[0]
     assert '"genuinely"' in prompts[0]
     assert "Dear [Hiring Manager's Name]," in prompts[0]
     assert "title: Cover Letter" not in prompts[0]
@@ -107,19 +155,26 @@ def test_llm_verbiage_gets_one_revision(ledger):
     generated = generate(run, ledger)
 
     assert "Your draft below breaks these rules:" in prompts[1]
-    assert "- uses the word 'genuinely'" in prompts[1]
+    assert "- uses the banned phrase 'genuinely'" in prompts[1]
     assert "- uses an en or em dash" in prompts[1]
     assert generated.letter.paragraphs[0] == "Dear Hiring Team,"
 
 
 def test_long_draft_gets_one_revision(ledger):
-    run, prompts = scripted("Dear team,\n\n" + "word " * 60 + "\n\nBest,", LETTER)
+    run, prompts = scripted("Dear team,\n\n" + "word " * 330 + "\n\nBest,", LETTER)
 
     generate(run, ledger)
 
-    cap = round(word_count(template_body(TEMPLATE)) * WORD_ALLOWANCE)
-    assert f"under {cap} words" in prompts[0]
-    assert f"- is 63 words; the limit is {cap}" in prompts[1]
+    assert f"at most {MAX_LETTER_WORDS} words" in prompts[0]
+    assert f"- is 333 words; the limit is {MAX_LETTER_WORDS}" in prompts[1]
+
+
+def test_revision_still_over_the_limit_fails(ledger):
+    long_letter = "Dear team,\n\n" + "Word " * 330 + "\n\nBest,"
+    run, _ = scripted(long_letter, long_letter)
+
+    with pytest.raises(DocumentError, match="Cover letter still is 333 words; the limit is 320"):
+        generate(run, ledger)
 
 
 def test_verbiage_that_survives_revision_fails(ledger):

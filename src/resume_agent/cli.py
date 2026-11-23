@@ -34,6 +34,7 @@ from resume_agent.pipeline import (
     Mode,
     applied_files,
     baseline_dir,
+    draft_letter,
     lock_application,
     render_folder,
     tailor_folder,
@@ -181,6 +182,26 @@ def fetch(
     triage = triage_folder(listing, out_dir, config, llm_runner(config), baseline)
     typer.echo(f"Listing: {listing.title} ({validation.words} words{', OCR' if used_ocr else ''})")
     typer.echo(f"Triage {'FLAGGED' if triage.flagged else 'CLEAR'}: {out_dir / TRIAGE_MD}")
+
+
+@app.command("letter")
+def letter(
+    folder: Annotated[Path, typer.Argument(help="Application or test-listing folder.")],
+    baseline: Annotated[
+        str | None, typer.Option(help="Baseline name; defaults to default_baseline.")
+    ] = None,
+) -> None:
+    """Draft only a cover letter into the folder's drafts/, to check voice.md."""
+    config = load_config_or_exit()
+    try:
+        draft, flags = draft_letter(folder, config, llm_runner(config), baseline)
+    except TAILOR_ERRORS as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(1) from error
+
+    typer.echo(f"Draft: {draft}")
+    for flag in flags:
+        typer.echo(f"  Review: {flag}")
 
 
 @app.command("tailor")
