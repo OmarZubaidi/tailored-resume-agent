@@ -282,6 +282,13 @@ def junior_drops(
     ]
 
 
+def listing_ledger(source: Path, dropped: list[str], config: Config) -> Ledger:
+    junior = config.junior_listing
+    return without_ledger_roles(
+        load_ledger(source / LEDGER_FILE), dropped, junior.move_skills_to, junior.max_moved_months
+    )
+
+
 def notes_markdown(baseline: str, mode: Mode, config: Config, today: date) -> str:
     return "\n".join(
         [
@@ -334,15 +341,20 @@ def draft_letter(
     baseline: str | None = None,
 ) -> tuple[Path, list[str]]:
     source = baseline_dir(config, baseline or config.default_baseline)
-    tailored_resume = folder / RESUME_SOURCE
-    resume = (tailored_resume if tailored_resume.is_file() else source / RESUME_SOURCE).read_text()
     listing = read_listing(folder / LISTING_MD)
-    letter = cover_letter_for(
-        listing, resume, source, load_ledger(source / LEDGER_FILE), config, run
+    full_resume = parse_resume((source / RESUME_SOURCE).read_text())
+    dropped, junior_flags = junior_drops(full_resume, folder, listing.text, config, run)
+    tailored_resume = folder / RESUME_SOURCE
+    resume = (
+        tailored_resume.read_text()
+        if tailored_resume.is_file()
+        else resume_markdown(without_roles(full_resume, dropped))
     )
+    ledger = listing_ledger(source, dropped, config)
+    letter = cover_letter_for(listing, resume, source, ledger, config, run)
     target = next_draft(folder, Path(COVER_LETTER_SOURCE).stem)
     target.write_text(letter.markdown)
-    return target, letter.flags
+    return target, [*junior_flags, *letter.flags]
 
 
 def tailor_folder(
@@ -358,10 +370,7 @@ def tailor_folder(
     listing = read_listing(folder / LISTING_MD)
     full_resume = parse_resume((source / RESUME_SOURCE).read_text())
     dropped, junior_flags = junior_drops(full_resume, folder, listing.text, config, run)
-    junior = config.junior_listing
-    ledger = without_ledger_roles(
-        load_ledger(source / LEDGER_FILE), dropped, junior.move_skills_to, junior.max_moved_months
-    )
+    ledger = listing_ledger(source, dropped, config)
     baseline_resume = without_roles(full_resume, dropped)
     bank_path = source / BANK_FILE
     extra = (

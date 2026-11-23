@@ -9,13 +9,16 @@ from typer.testing import CliRunner
 from resume_agent import cli
 from resume_agent.cli import app
 from resume_agent.config import Config
+from resume_agent.cover_letter import years_in_words
 from resume_agent.documents import parse_resume
 from resume_agent.guards.rules import lock_applied_files
 from resume_agent.pipeline import (
     Mode,
     detect_mode,
+    draft_letter,
     junior_companies,
     junior_drops,
+    listing_ledger,
     tailor_folder,
 )
 from resume_agent.triage import YEARS_FILE
@@ -174,6 +177,51 @@ def test_junior_company_missing_from_the_baseline_is_not_flagged(junior_config, 
     resume = parse_resume(RESUME)
 
     assert junior_drops(resume, folder, "LISTING", junior_config, years_reply(4)) == ([], [])
+
+
+def test_letter_drops_the_same_junior_roles_as_tailor(junior_config, folder):
+    source = junior_config.data_root / "baselines/general"
+    (source / "resume.md").write_text(
+        RESUME.replace("## Education", f"### {EARLIER}\n- Fixed pumps.\n## Education")
+    )
+    (source / "skills-ledger.yaml").write_text(
+        LEDGER.replace("skills:", "  Globex:\n    from: 05/2021\n    to: 08/2022\nskills:")
+    )
+    prompts = []
+
+    def run(prompt: str) -> str:
+        prompts.append(prompt)
+        return junior_run(prompt)
+
+    _, flags = draft_letter(folder, junior_config, run)
+
+    letter_prompt = prompts[-1]
+    expected = years_in_words(listing_ledger(source, ["Globex"], junior_config).experience_months())
+    assert f"use this exact number): {expected}" in letter_prompt
+    assert "Fixed pumps." not in letter_prompt
+    assert flags[0] == "Dropped for a listing capped at 4 years or fewer: Globex"
+
+
+def test_letter_keeps_a_tailored_resume_with_the_trimmed_ledger(junior_config, folder):
+    source = junior_config.data_root / "baselines/general"
+    (source / "resume.md").write_text(
+        RESUME.replace("## Education", f"### {EARLIER}\n- Fixed pumps.\n## Education")
+    )
+    (source / "skills-ledger.yaml").write_text(
+        LEDGER.replace("skills:", "  Globex:\n    from: 05/2021\n    to: 08/2022\nskills:")
+    )
+    (folder / "resume.md").write_text(RESUME.replace("dozens of", "forty"))
+    prompts = []
+
+    def run(prompt: str) -> str:
+        prompts.append(prompt)
+        return junior_run(prompt)
+
+    draft_letter(folder, junior_config, run)
+
+    expected = years_in_words(listing_ledger(source, ["Globex"], junior_config).experience_months())
+    assert "Built forty AWS Lambda functions." in prompts[-1]
+    assert f"use this exact number): {expected}" in prompts[-1]
 
 
 @needs_browser
