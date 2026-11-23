@@ -20,7 +20,8 @@ Edit `Job Applications.xlsx`, save, and `resume_agent sync` acts on it (automati
 
 Inbox work waits for Excel to close because writing to an open workbook makes Proton Drive create
 conflicted copies. Stage dates take effect on every save. The sync log is
-`~/Library/Logs/resume_agent/sync.log`.
+`~/Library/Logs/resume_agent/sync.log`. A macOS notification appears when a sync run stops on an
+error, has failed rows, or leaves flagged jobs waiting for review.
 
 ## What you can say
 
@@ -30,7 +31,7 @@ The agent is for tailoring review and CV help. Open any coding agent (Claude Cod
 | Say | What happens |
 | --- | --- |
 | "add these jobs" | After you paste URLs into the Inbox sheet: fetches, triages and tailors each one |
-| "review flagged jobs" | Lists jobs triage flagged (location, sponsorship, years, missing skills); you pick proceed or drop |
+| "review flagged jobs" | Lists jobs triage flagged (location, clearance, degree, years); you pick proceed or drop |
 | "applied to Acme Health" | Records Applied and locks that application's resume and cover letter |
 | "rejected by Acme Health" | Records Rejected |
 | "Acme Health moved to 2nd round, technical Dec 10" | Records 2nd with the detail in the timeline |
