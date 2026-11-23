@@ -78,12 +78,15 @@ BANNED_WORDS = (
 BANNED_WORD = re.compile(
     rf"\b({'|'.join(re.escape(word) for word in BANNED_WORDS)})\b", re.IGNORECASE
 )
-ABBREVIATION = re.compile(r"\b(?:e\.g|i\.e|etc|vs)\.", re.IGNORECASE)
+ABBREVIATION = re.compile(
+    r"\b(?:e\.g|i\.e|etc|vs|mr|mrs|ms|dr|jr|sr|inc|ltd|no|ph\.d)\.|\b(?:[a-z]\.){2,}",
+    re.IGNORECASE,
+)
 LOWERCASE_START = re.compile(r"(?:^|[.!?]\s+|\n\s*)([a-z][a-z0-9-]*)\b", re.MULTILINE)
 LOWERCASE_I = re.compile(r"(?<![\w.])i(?=[\s,;:!?']|$)")
 CONTRACTIONS_WITHOUT_APOSTROPHE = (
     "dont cant wont isnt arent doesnt didnt wasnt werent hasnt havent couldnt shouldnt wouldnt "
-    "im ive youre theyre thats whats"
+    "im ive youre youve theyre theyve weve hes shes thats whats couldve shouldve wouldve"
 ).split()
 MISSING_APOSTROPHE = re.compile(
     rf"\b({'|'.join(CONTRACTIONS_WITHOUT_APOSTROPHE)})\b", re.IGNORECASE
@@ -131,7 +134,7 @@ def casing_problems(text: str) -> list[str]:
 
 def starts_with_i_run(text: str) -> bool:
     run = 0
-    for sentence in SENTENCE_BREAK.split(text):
+    for sentence in SENTENCE_BREAK.split(ABBREVIATION.sub("", text)):
         run = run + 1 if STARTS_WITH_I.match(sentence) else 0
         if run >= MAX_I_RUN:
             return True

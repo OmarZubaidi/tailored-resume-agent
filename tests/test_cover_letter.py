@@ -97,6 +97,26 @@ def test_plain_writing_has_no_style_problems():
     assert style_problems("I'm not sure, but I built a fax (yes, that fax!) REST API.") == []
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I'm U.S. based and remote.",
+        "I hold a Ph.D. in hydraulics.",
+        "Free after 3 p.m. and on weekends.",
+        "Dr. Lee and Mr. Park reviewed it.",
+        "Tools (e.g. I shipped Playwright suites) helped. I did that. I also did this.",
+    ],
+)
+def test_abbreviations_do_not_start_sentences(text):
+    assert style_problems(text) == []
+
+
+def test_more_dropped_apostrophes():
+    problems = style_problems("Hes late. Theyve left. We couldve won.")
+
+    assert {problem.split()[-1] for problem in problems} == {"'Hes'", "'Theyve'", "'couldve'"}
+
+
 def test_two_sentences_starting_with_i_are_fine():
     assert style_problems("I built it. I tested it. Then it shipped. I fixed one bug.") == []
 
