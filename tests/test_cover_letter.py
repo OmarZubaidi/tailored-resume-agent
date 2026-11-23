@@ -171,7 +171,7 @@ def test_long_draft_gets_one_revision(ledger):
 
 def test_revision_still_over_the_limit_fails(ledger):
     long_letter = "Dear team,\n\n" + "Word " * 330 + "\n\nBest,"
-    run, _ = scripted(long_letter, long_letter)
+    run, _ = scripted(long_letter, long_letter, long_letter)
 
     with pytest.raises(DocumentError, match="Cover letter still is 333 words; the limit is 320"):
         generate(run, ledger)
@@ -179,15 +179,34 @@ def test_revision_still_over_the_limit_fails(ledger):
 
 def test_verbiage_that_survives_revision_fails(ledger):
     stubborn = "Dear team,\n\nIt's not just code, it's craft.\n\nBest,"
-    run, _ = scripted(stubborn, stubborn)
+    run, prompts = scripted(stubborn, stubborn, stubborn)
 
     with pytest.raises(DocumentError, match="Cover letter still uses contrast framing"):
         generate(run, ledger)
+    assert len(prompts) == 3
+
+
+def test_clean_first_draft_makes_one_call(ledger):
+    run, prompts = scripted(LETTER)
+
+    generate(run, ledger)
+
+    assert len(prompts) == 1
+
+
+def test_second_revision_can_fix_the_letter(ledger):
+    stubborn = "Dear team,\n\nIt's not just code, it's craft.\n\nBest,"
+    run, prompts = scripted(stubborn, stubborn, LETTER)
+
+    generated = generate(run, ledger)
+
+    assert len(prompts) == 3
+    assert generated.letter.paragraphs[0] == "Dear Hiring Team,"
 
 
 def test_leftover_placeholder_fails_after_revision(ledger):
     placeholder = "Dear team,\n\nI like [Company Name].\n\nBest,"
-    run, _ = scripted(placeholder, placeholder)
+    run, _ = scripted(placeholder, placeholder, placeholder)
 
     with pytest.raises(DocumentError, match=r"leaves the placeholder \[Company Name\]"):
         generate(run, ledger)

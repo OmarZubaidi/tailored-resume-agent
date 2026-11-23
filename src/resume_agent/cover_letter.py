@@ -27,6 +27,7 @@ YEARS_MENTION = re.compile(r"\b\w+\+? years?\b", re.IGNORECASE)
 NO_VOICE_NOTES = "None yet. Write in a plain, professional register."
 NO_STORY_NOTES = "None yet. Tell stories from the resume's facts alone."
 MAX_LETTER_WORDS = 320
+MAX_REVISIONS = 2
 BANNED_WORDS = (
     "honestly",
     "genuinely",
@@ -210,11 +211,13 @@ def write_cover_letter(
     )
     reply = run(prompt).strip()
     issues = letter_problems(reply, max_words)
-    if issues:
+    for _ in range(MAX_REVISIONS):
+        if not issues:
+            break
         reply = run(revision_request(prompt, reply, issues)).strip()
-        remaining = letter_problems(reply, max_words)
-        if remaining:
-            raise DocumentError(f"Cover letter still {'; '.join(remaining)}")
+        issues = letter_problems(reply, max_words)
+    if issues:
+        raise DocumentError(f"Cover letter still {'; '.join(issues)}")
 
     title = parse_cover_letter(template).title
     letter = parse_cover_letter(
