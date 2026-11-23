@@ -173,6 +173,19 @@ def test_extract_requirements():
     assert requirements == Requirements(3, ["Go"], ["BS in CS"])
 
 
+def test_extract_requirements_reads_the_top_of_a_range():
+    reply = '{"years_required": 2, "years_max": 4, "required_skills": []}'
+
+    assert extract_requirements(lambda _: reply, "LISTING").years_max == 4
+
+
+@pytest.mark.parametrize("years_max", [True, "4", None])
+def test_years_max_that_is_not_a_number_is_none(years_max):
+    reply = json.dumps({"years_max": years_max})
+
+    assert extract_requirements(lambda _: reply, "LISTING").years_max is None
+
+
 def test_company_and_role_come_from_the_listing(config, ledger_path):
     reply = json.dumps(
         {

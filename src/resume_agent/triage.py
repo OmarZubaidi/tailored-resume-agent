@@ -108,19 +108,24 @@ class Requirements:
     other_requirements: list[str]
     company: str = ""
     role: str = ""
+    years_max: int | None = None
 
 
 def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requirements:
     data = parse_json_reply(run(render_prompt("triage-fit", listing=listing_text)))
-    years = data.get("years_required")
-    valid_years = isinstance(years, int | float) and not isinstance(years, bool)
     return Requirements(
-        years_required=int(years) if valid_years else None,
+        years_required=whole_number(data.get("years_required")),
         required_skills=string_list(data.get("required_skills")),
         other_requirements=string_list(data.get("other_requirements")),
         company=text_value(data.get("company")),
         role=text_value(data.get("role")),
+        years_max=whole_number(data.get("years_max")),
     )
+
+
+def whole_number(value: object) -> int | None:
+    valid = isinstance(value, int | float) and not isinstance(value, bool)
+    return int(value) if valid else None
 
 
 def string_list(value: object) -> list[str]:
