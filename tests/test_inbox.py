@@ -73,7 +73,6 @@ def fake_llm(prompt: str) -> str:
             "company": company,
             "role": role,
             "years_required": None,
-            "required_skills": [],
             "other_requirements": [],
         }
     )

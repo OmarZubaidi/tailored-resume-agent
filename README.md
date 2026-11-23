@@ -31,7 +31,7 @@ The agent is for tailoring review and CV help. Open any coding agent (Claude Cod
 | Say | What happens |
 | --- | --- |
 | "add these jobs" | After you paste URLs into the Inbox sheet: fetches, triages and tailors each one |
-| "review flagged jobs" | Lists jobs triage flagged (location, sponsorship, years); you pick proceed or drop |
+| "review flagged jobs" | Lists jobs triage flagged (location, clearance, degree, years); you pick proceed or drop |
 | "applied to Acme Health" | Records Applied and locks that application's resume and cover letter |
 | "rejected by Acme Health" | Records Rejected |
 | "Acme Health moved to 2nd round, technical Dec 10" | Records 2nd with the detail in the timeline |
