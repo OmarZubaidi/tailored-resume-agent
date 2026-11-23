@@ -319,8 +319,12 @@ def cover_letter_for(
 def next_draft(folder: Path, stem: str) -> Path:
     drafts = folder / DRAFTS_DIR
     drafts.mkdir(exist_ok=True)
-    taken = len(list(drafts.glob(f"{stem}-*.md")))
-    return drafts / f"{stem}-{taken + 1:02d}.md"
+    numbers = [
+        int(suffix)
+        for path in drafts.glob(f"{stem}-*.md")
+        if (suffix := path.stem.removeprefix(f"{stem}-")).isdigit()
+    ]
+    return drafts / f"{stem}-{max(numbers, default=0) + 1:02d}.md"
 
 
 def draft_letter(

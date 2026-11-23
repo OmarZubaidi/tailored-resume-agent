@@ -37,8 +37,8 @@ skills:
   TypeScript:
     - role: Acme Health
 """
-LETTER = "Dear Hiring Team,\n\nI have built Lambdas for three years and would like to at Globex."
-LETTER += "\n\nBest,"
+LETTER = "Dear Hiring Team,\n\nI have built Lambdas for three years and would like to build at"
+LETTER += " Globex.\n\nBest,"
 
 
 @pytest.fixture
@@ -86,6 +86,17 @@ def test_letter_drafts_into_numbered_files(prompts, listing_folder):
     assert drafts == ["cover-letter-01.md", "cover-letter-02.md"]
     assert "Lambdas for three years" in (listing_folder / "drafts/cover-letter-02.md").read_text()
     assert not (listing_folder / "cover-letter.md").exists()
+
+
+def test_letter_numbers_after_the_highest_draft(prompts, listing_folder):
+    drafts = listing_folder / "drafts"
+    drafts.mkdir()
+    (drafts / "cover-letter-03.md").write_text("kept")
+
+    CliRunner().invoke(app, ["letter", str(listing_folder)])
+
+    assert (drafts / "cover-letter-03.md").read_text() == "kept"
+    assert (drafts / "cover-letter-04.md").exists()
 
 
 def test_letter_uses_voice_and_baseline_resume_without_a_tailored_one(prompts, listing_folder):
