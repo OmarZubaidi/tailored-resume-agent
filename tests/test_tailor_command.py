@@ -121,6 +121,8 @@ def junior_config(config, config_data) -> Config:
             "junior_listing": {
                 "max_years": 4,
                 "drop_companies": ["Globex"],
+                "move_skills_to": "Acme Health",
+                "max_moved_months": 3,
             },
         }
     )

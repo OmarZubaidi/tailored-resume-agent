@@ -39,7 +39,7 @@ from resume_agent.guards.rules import (
 )
 from resume_agent.job_listing import LISTING_MD, Listing, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
-from resume_agent.ledger import LEDGER_FILE, LedgerError, load_ledger
+from resume_agent.ledger import LEDGER_FILE, LedgerError, load_ledger, without_ledger_roles
 from resume_agent.llm import LlmError
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
 from resume_agent.render import RenderError, cover_letter_html, render_pdf, resume_html
@@ -247,17 +247,15 @@ def junior_companies(
     return junior.drop_companies
 
 
-def unmatched_drop_companies(config: Config) -> list[str]:
+def unmatched_junior_companies(config: Config) -> list[str]:
     companies = {
         role.company.lower()
         for path in (config.data_root / BASELINES_DIR).glob(f"*/{RESUME_SOURCE}")
         for role in experience_roles(parse_resume(path.read_text()))
     }
-    return [
-        company
-        for company in config.junior_listing.drop_companies
-        if company.lower() not in companies
-    ]
+    junior = config.junior_listing
+    named = [*junior.drop_companies, *([junior.move_skills_to] if junior.move_skills_to else [])]
+    return [company for company in named if company.lower() not in companies]
 
 
 def junior_drops(
@@ -302,9 +300,12 @@ def tailor_folder(
     baseline = baseline or config.default_baseline
     source = baseline_dir(config, baseline)
     listing = read_listing(folder / LISTING_MD)
-    ledger = load_ledger(source / LEDGER_FILE)
     full_resume = parse_resume((source / RESUME_SOURCE).read_text())
     dropped, junior_flags = junior_drops(full_resume, folder, listing.text, config, run)
+    junior = config.junior_listing
+    ledger = without_ledger_roles(
+        load_ledger(source / LEDGER_FILE), dropped, junior.move_skills_to, junior.max_moved_months
+    )
     baseline_resume = without_roles(full_resume, dropped)
     bank_path = source / BANK_FILE
     extra = (

@@ -14,6 +14,8 @@ default_baseline: general
 junior_listing:
   max_years: 4
   drop_companies: []
+  move_skills_to: null
+  max_moved_months: 3
 apply_on_my_behalf: false
 llm:
   provider: claude-code

@@ -2,7 +2,14 @@ from datetime import date
 
 import pytest
 
-from resume_agent.ledger import LedgerError, Period, load_ledger, merged_months, whole_years
+from resume_agent.ledger import (
+    LedgerError,
+    Period,
+    load_ledger,
+    merged_months,
+    whole_years,
+    without_ledger_roles,
+)
 
 TODAY = date(2026, 11, 21)
 LEDGER = """
@@ -35,6 +42,9 @@ metrics:
 """
 
 
+WITH_INITECH_ONLY_SKILL = LEDGER.replace("metrics:", "  Go:\n    - role: Initech\nmetrics:")
+
+
 @pytest.fixture
 def ledger(tmp_path):
     path = tmp_path / "skills-ledger.yaml"
@@ -46,6 +56,26 @@ def write(tmp_path, text):
     path = tmp_path / "skills-ledger.yaml"
     path.write_text(text)
     return path
+
+
+def test_dropped_role_moves_capped_skill_credit(tmp_path):
+    ledger = load_ledger(write(tmp_path, WITH_INITECH_ONLY_SKILL), TODAY)
+
+    moved = without_ledger_roles(ledger, ["initech"], "Initrode Bank", 3)
+
+    acme_and_initrode = merged_months([moved.roles["Acme Health"], moved.roles["Initrode Bank"]])
+    assert "Initech" not in moved.roles
+    assert moved.experience_months() == acme_and_initrode
+    assert moved.skill_months("Go") == 3
+    assert moved.usage("Go").where == ["Initrode Bank"]
+    assert moved.skill_months("TypeScript") == acme_and_initrode
+    assert moved.usage("SQL").where == ["Acme Health"]
+
+
+def test_dropped_role_without_a_target_loses_its_credit(tmp_path):
+    ledger = load_ledger(write(tmp_path, WITH_INITECH_ONLY_SKILL), TODAY)
+
+    assert without_ledger_roles(ledger, ["Initech"], None, 3).skill_months("Go") == 0
 
 
 def test_period_months_are_inclusive():

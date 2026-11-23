@@ -48,6 +48,8 @@ class LlmConfig(StrictModel):
 class JuniorListing(StrictModel):
     max_years: int
     drop_companies: list[str]
+    move_skills_to: str | None
+    max_moved_months: int
 
 
 class Config(StrictModel):

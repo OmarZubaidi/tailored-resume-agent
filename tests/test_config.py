@@ -195,14 +195,15 @@ def test_config_check_command_reports_errors(config_data, write_config):
 
 
 @pytest.mark.parametrize(
-    ("company", "exit_code"),
+    ("company", "move_to", "unmatched"),
     [
-        ("globex", 0),
-        ("Globecks", 1),
+        ("globex", "Globex", ""),
+        ("Globecks", None, "Globecks"),
+        ("Globex", "Initech", "Initech"),
     ],
 )
-def test_config_check_matches_drop_companies_to_baseline_roles(
-    config_data, write_config, data_root, company, exit_code
+def test_config_check_matches_junior_companies_to_baseline_roles(
+    config_data, write_config, data_root, company, move_to, unmatched
 ):
     baseline = data_root / "baselines/general"
     baseline.mkdir(parents=True)
@@ -215,15 +216,17 @@ def test_config_check_matches_drop_companies_to_baseline_roles(
             "junior_listing": {
                 "max_years": 4,
                 "drop_companies": [company],
+                "move_skills_to": move_to,
+                "max_moved_months": 3,
             },
         }
     )
 
     result = CliRunner().invoke(app, ["config", "check"])
 
-    assert result.exit_code == exit_code
-    if exit_code:
-        assert "drop_companies: no baseline role at Globecks" in result.output
+    assert result.exit_code == (1 if unmatched else 0)
+    if unmatched:
+        assert f"junior_listing: no baseline role at {unmatched}" in result.output
 
 
 def test_config_check_command_ok(config_data, write_config):

@@ -55,6 +55,31 @@ class Ledger:
         return any(whole_word_in(term, name) for name in self.skills)
 
 
+def without_ledger_roles(
+    ledger: Ledger, companies: list[str], move_to: str | None, max_moved_months: int
+) -> Ledger:
+    lowered = {company.lower() for company in companies}
+    dropped = {name: period for name, period in ledger.roles.items() if name.lower() in lowered}
+    skills = {}
+    for skill, usage in ledger.skills.items():
+        moved = [period for period in usage.periods if period in dropped.values()]
+        where = [name for name in usage.where if name not in dropped]
+        extra_months = usage.extra_months
+        if moved and move_to and move_to not in where:
+            extra_months += min(merged_months(moved), max_moved_months)
+            where.append(move_to)
+        skills[skill] = Usage(
+            periods=[period for period in usage.periods if period not in moved],
+            extra_months=extra_months,
+            where=where,
+        )
+    return Ledger(
+        roles={name: period for name, period in ledger.roles.items() if name not in dropped},
+        skills=skills,
+        metrics=ledger.metrics,
+    )
+
+
 def whole_word_in(needle: str, haystack: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack, re.IGNORECASE) is not None
 
