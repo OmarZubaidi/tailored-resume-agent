@@ -34,16 +34,17 @@ The letter adds what the resume cannot say. It is not a summary of the resume. T
 as a suggestion of shape and tone, not a form to fill in, and leave no "[...]" placeholders.
 
 1. Hook, one or two sentences. Connect one specific requirement or problem from the listing to the
-   candidate's single most relevant proof point, and say what he enjoys about that kind of work.
+   candidate's single most relevant proof point. Say what the candidate enjoys about that kind of
+   work only as the voice notes or story notes describe it; never invent a preference.
    Never open with identity ("I'm a software engineer"), the act of applying, or enthusiasm.
 2. One story, three or four sentences. Lead with the work itself, not a label for it ("The clearest
-   example is..."). Prefer a story from the story notes; tell it as the constraint, what he did,
-   and the result, using only what the notes and resume state. A story without notes opens with the
+   example is..."). Prefer a story from the story notes; tell it as the constraint, what the
+   candidate did, and the result, using only what the notes and resume state. A story without notes opens with the
    result and states no constraint or context. Pick the story that fits this listing best. No list
    of projects, and name at most three technologies, only ones the listing also names.
-3. Earlier career, two or three sentences. Use one concrete fact from the story notes that fits
-   this listing, so the reader sees he understands users because he was one. Let the fact carry
-   it; do not add a sentence explaining the lesson.
+3. Earlier career, two or three sentences, only if the story notes describe one. Use one concrete
+   fact from them that fits this listing and shows the candidate understands the software's users.
+   Let the fact carry it; do not add a sentence explaining the lesson.
 4. Why this company, one or two sentences, optional. Build on one concrete, non-generic detail the
    listing states, such as a product, customer, value or story. Never invent company details. If
    the listing offers nothing specific, leave this paragraph out.
@@ -69,7 +70,7 @@ as a suggestion of shape and tone, not a form to fill in, and leave no "[...]" p
      "not only X, but Y".
    - Vary sentence openings. Never start three sentences in a row with "I".
    - No moral-of-the-story sentences: state a fact and stop, without a follow-up that explains
-     what it taught him or why it matters.
+     what it taught the candidate or why it is important.
 6. Keep the whole letter to at most $max_words words.
 
 ## Output
