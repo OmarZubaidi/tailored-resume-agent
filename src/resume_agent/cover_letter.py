@@ -66,7 +66,6 @@ BANNED_WORDS = (
     "outside the box",
     "hit the ground running",
     "spearhead",
-    "spearheaded",
     "utilize",
     "cutting-edge",
     "world-class",
@@ -75,8 +74,23 @@ BANNED_WORDS = (
     "paradigm",
     "matters",
 )
+INFLECTED_STEMS = {
+    "excited": "excit",
+    "eager": "eager",
+    "leverage": "leverag",
+    "spearhead": "spearhead",
+    "utilize": "utiliz",
+    "empower": "empower",
+}
+
+
+def banned_pattern(word: str) -> str:
+    stem = INFLECTED_STEMS.get(word)
+    return rf"{re.escape(stem)}\w*" if stem else re.escape(word)
+
+
 BANNED_WORD = re.compile(
-    rf"\b({'|'.join(re.escape(word) for word in BANNED_WORDS)})\b", re.IGNORECASE
+    rf"\b({'|'.join(banned_pattern(word) for word in BANNED_WORDS)})\b", re.IGNORECASE
 )
 ABBREVIATION = re.compile(
     r"\b(?:e\.g|i\.e|etc|vs|mr|mrs|ms|dr|jr|sr|inc|ltd|no|ph\.d)\.|\b(?:[a-z]\.){2,}",
