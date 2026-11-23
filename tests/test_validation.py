@@ -2,12 +2,15 @@ from pathlib import Path
 
 import pytest
 
+from resume_agent import validation
+from resume_agent.browser import BrowserError
 from resume_agent.job_listing import LISTING_MD, Listing, ListingError, read_listing
 from resume_agent.validation import (
     MIN_WORDS,
     SOFT_MIN_WORDS,
     Tier,
     agreement,
+    fetch_usable_listing,
     resolve_listing,
     validate_text,
     word_count,
@@ -20,6 +23,55 @@ def listing_text(words: int, sections: str = "Responsibilities Requirements") ->
     header = f"{TITLE} {sections}"
     filler = " ".join("word" for _ in range(words - word_count(header)))
     return f"{header} {filler}"
+
+
+def fake_fetch(failing: set[bool], attempts: list[bool]):
+    def fetch(url: str, out_dir: Path, chrome: bool = False) -> Listing:
+        attempts.append(chrome)
+        if chrome in failing:
+            raise (BrowserError if chrome else ListingError)(
+                f"{'Chrome' if chrome else 'HTTP'} 403"
+            )
+        return Listing(source=url, title=TITLE, text=listing_text(SOFT_MIN_WORDS))
+
+    return fetch
+
+
+@pytest.mark.parametrize(
+    ("failing", "attempts"),
+    [
+        (set(), [False]),
+        ({False}, [False, True]),
+    ],
+)
+def test_fetch_tries_headless_chromium_then_chrome(tmp_path, monkeypatch, failing, attempts):
+    tried = []
+    monkeypatch.setattr(validation, "fetch_listing", fake_fetch(failing, tried))
+
+    listing, _, _ = fetch_usable_listing("https://jobs.acme.com/1", tmp_path)
+
+    assert listing.title == TITLE
+    assert tried == attempts
+
+
+def test_fetch_that_fails_in_both_browsers_names_both_errors(tmp_path, monkeypatch):
+    monkeypatch.setattr(validation, "fetch_listing", fake_fetch({False, True}, []))
+
+    with pytest.raises(ListingError, match=r"^HTTP 403 \| Chrome also failed: Chrome 403$"):
+        fetch_usable_listing("https://jobs.acme.com/1", tmp_path)
+
+
+def test_unusable_headless_listing_is_retried_in_chrome(tmp_path, monkeypatch):
+    def fetch(url, out_dir, chrome=False):
+        words = SOFT_MIN_WORDS if chrome else MIN_WORDS - 1
+        return Listing(source=url, title=TITLE, text=listing_text(words))
+
+    monkeypatch.setattr(validation, "fetch_listing", fetch)
+    monkeypatch.setattr(validation, "ocr_pdf", lambda _: "Please sign in")
+
+    _, result, _ = fetch_usable_listing("https://jobs.acme.com/1", tmp_path)
+
+    assert result.tier is Tier.ACCEPT
 
 
 def test_word_count_keeps_tech_terms_whole():

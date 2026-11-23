@@ -5,6 +5,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, ViewportSize, sync_playwright
 
 INSTALL_COMMAND = ".venv/bin/playwright install chromium"
+CHROME_CHANNEL = "chrome"
 
 
 class BrowserError(Exception):
@@ -12,14 +13,17 @@ class BrowserError(Exception):
 
 
 @contextmanager
-def browser_page(viewport: ViewportSize | None = None) -> Iterator[Page]:
+def browser_page(viewport: ViewportSize | None = None, chrome: bool = False) -> Iterator[Page]:
     with sync_playwright() as playwright:
         try:
-            browser = playwright.chromium.launch()
+            if chrome:
+                browser = playwright.chromium.launch(channel=CHROME_CHANNEL, headless=False)
+            else:
+                browser = playwright.chromium.launch()
         except PlaywrightError as error:
-            raise BrowserError(
-                f"Could not start Chromium. Run `{INSTALL_COMMAND}`. {error.message}"
-            ) from error
+            fix = "Install Google Chrome" if chrome else f"Run `{INSTALL_COMMAND}`"
+            name = "Chrome" if chrome else "Chromium"
+            raise BrowserError(f"Could not start {name}. {fix}. {error.message}") from error
         try:
             yield browser.new_page(viewport=viewport)
         finally:

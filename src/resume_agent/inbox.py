@@ -13,10 +13,10 @@ from resume_agent.application_folder import (
 )
 from resume_agent.config import Config
 from resume_agent.data_root import APPLICATIONS_DIR, STATE_DIR
-from resume_agent.job_listing import ListingError, fetch_listing
+from resume_agent.job_listing import ListingError
 from resume_agent.pipeline import TAILOR_ERRORS, Mode, baseline_dir, tailor_folder, triage_folder
 from resume_agent.tracker import MODES, Application, Decision, InboxRow, Stage, Tracker
-from resume_agent.validation import resolve_listing
+from resume_agent.validation import fetch_usable_listing
 
 FLAGGED = "flagged"
 FAILED = "error"
@@ -70,7 +70,7 @@ def triage_row(
         row.id = next_id(tracker)
         save()
     staging = staging_folder(config, row.id)
-    listing, _, _ = resolve_listing(fetch_listing(row.url, staging), staging)
+    listing, _, _ = fetch_usable_listing(row.url, staging)
     triage = triage_folder(listing, staging, config, run, row.baseline or None)
     row.company, row.role = triage.company, triage.role
     name = folder_name(row.id, row.company, row.role, today)

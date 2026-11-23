@@ -4,12 +4,14 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
+from resume_agent.browser import BrowserError
 from resume_agent.job_listing import (
     LISTING_PDF,
     PDF_SOURCE_PREFIX,
     Listing,
     ListingError,
     clean_text,
+    fetch_listing,
     save_listing,
 )
 from resume_agent.ocr import ocr_pdf
@@ -21,6 +23,7 @@ SOFT_MIN_WORDS = 300
 OCR_AGREEMENT = 0.8
 SECTION_SIGNALS = ("responsibilities", "requirements", "qualifications", "skills", "experience")
 WORD = re.compile(r"\w[\w'’+#./-]*")
+FETCH_ERRORS = (BrowserError, ListingError)
 
 
 class Tier(StrEnum):
@@ -116,3 +119,14 @@ def resolve_listing(
         )
     save_listing(recovered, out_dir)
     return recovered, recovered_validation, True
+
+
+def fetch_usable_listing(url: str, out_dir: Path) -> tuple[Listing, Validation, bool]:
+    try:
+        return resolve_listing(fetch_listing(url, out_dir), out_dir)
+    except FETCH_ERRORS as error:
+        headless_error = error
+    try:
+        return resolve_listing(fetch_listing(url, out_dir, chrome=True), out_dir)
+    except FETCH_ERRORS as error:
+        raise ListingError(f"{headless_error} | Chrome also failed: {error}") from error

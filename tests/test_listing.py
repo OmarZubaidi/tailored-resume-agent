@@ -1,9 +1,14 @@
 import threading
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from browser_marks import needs_browser
+from pdfminer.high_level import extract_text as pdfminer_extract
+from playwright.sync_api import Error as PlaywrightError
 
+from resume_agent import job_listing
+from resume_agent.browser import browser_page
 from resume_agent.job_listing import (
     LISTING_MD,
     LISTING_PDF,
@@ -102,6 +107,45 @@ def test_fetch_listing_saves_pdf_and_main_text(tmp_path):
     assert "Home Jobs About" not in listing.text
     assert (out / LISTING_PDF).read_bytes().startswith(b"%PDF")
     assert read_listing(out / LISTING_MD) == listing
+
+
+@needs_browser
+def test_chrome_fetch_prints_the_page_without_its_scripts(tmp_path, monkeypatch):
+    @contextmanager
+    def headless_only(viewport=None, chrome=False):
+        with browser_page(viewport) as page:
+            yield page
+
+    monkeypatch.setattr(job_listing, "browser_page", headless_only)
+    page = tmp_path / "job.html"
+    blocker = (
+        '<script>if (location.protocol === "about:") document.body.innerText = "Blocked"</script>'
+    )
+    page.write_text(PAGE.replace("</body>", f"{blocker}</body>"))
+    out = tmp_path / "out"
+
+    listing = fetch_listing(page.as_uri(), out, chrome=True)
+
+    assert listing.title == "Senior Software Engineer"
+    assert "Senior Software Engineer" in pdfminer_extract(str(out / LISTING_PDF))
+
+
+def test_closed_chrome_window_is_a_listing_error(tmp_path, monkeypatch):
+    class ClosedPage:
+        def goto(self, *_, **__):
+            return None
+
+        def query_selector(self, _):
+            raise PlaywrightError("Target page, context or browser has been closed")
+
+    @contextmanager
+    def closed_window(viewport=None, chrome=False):
+        yield ClosedPage()
+
+    monkeypatch.setattr(job_listing, "browser_page", closed_window)
+
+    with pytest.raises(ListingError, match="has been closed"):
+        fetch_listing("https://jobs.acme.com/1", tmp_path, chrome=True)
 
 
 @needs_browser
