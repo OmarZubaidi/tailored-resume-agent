@@ -168,6 +168,13 @@ def style_problems(text: str) -> list[str]:
     return problems
 
 
+def letter_problems(text: str, max_words: int) -> list[str]:
+    problems = style_problems(text)
+    if word_count(text) > max_words:
+        problems.append(f"is {word_count(text)} words; the limit is {max_words}")
+    return problems
+
+
 def revision_request(prompt: str, draft: str, issues: list[str]) -> str:
     listed = "\n".join(f"- {issue}" for issue in issues)
     return (
@@ -202,12 +209,10 @@ def write_cover_letter(
         banned_words=", ".join(f'"{word}"' for word in BANNED_WORDS),
     )
     reply = run(prompt).strip()
-    issues = style_problems(reply)
-    if word_count(reply) > max_words:
-        issues.append(f"is {word_count(reply)} words; the limit is {max_words}")
+    issues = letter_problems(reply, max_words)
     if issues:
         reply = run(revision_request(prompt, reply, issues)).strip()
-        remaining = style_problems(reply)
+        remaining = letter_problems(reply, max_words)
         if remaining:
             raise DocumentError(f"Cover letter still {'; '.join(remaining)}")
 

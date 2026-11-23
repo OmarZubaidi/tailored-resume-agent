@@ -165,8 +165,16 @@ def test_long_draft_gets_one_revision(ledger):
 
     generate(run, ledger)
 
-    assert f"under {MAX_LETTER_WORDS} words" in prompts[0]
+    assert f"at most {MAX_LETTER_WORDS} words" in prompts[0]
     assert f"- is 333 words; the limit is {MAX_LETTER_WORDS}" in prompts[1]
+
+
+def test_revision_still_over_the_limit_fails(ledger):
+    long_letter = "Dear team,\n\n" + "Word " * 330 + "\n\nBest,"
+    run, _ = scripted(long_letter, long_letter)
+
+    with pytest.raises(DocumentError, match="Cover letter still is 333 words; the limit is 320"):
+        generate(run, ledger)
 
 
 def test_verbiage_that_survives_revision_fails(ledger):

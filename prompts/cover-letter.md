@@ -70,7 +70,7 @@ as a suggestion of shape and tone, not a form to fill in, and leave no "[...]" p
    - Vary sentence openings. Never start three sentences in a row with "I".
    - No moral-of-the-story sentences: state a fact and stop, without a follow-up that explains
      what it taught him or why it matters.
-6. Keep the whole letter under $max_words words.
+6. Keep the whole letter to at most $max_words words.
 
 ## Output
 
