@@ -127,14 +127,20 @@ def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requir
 
 
 def save_years(folder: Path, triage: Triage) -> None:
+    path = folder / YEARS_FILE
     if triage.fit_checked:
-        (folder / YEARS_FILE).write_text(json.dumps({"years_max": triage.years_max}))
+        path.write_text(json.dumps({"years_max": triage.years_max}))
+    else:
+        path.unlink(missing_ok=True)
 
 
 def listing_years_max(folder: Path, listing_text: str, run: Callable[[str], str]) -> int | None:
-    path = folder / YEARS_FILE
-    if path.is_file():
-        return whole_number(json.loads(path.read_text()).get("years_max"))
+    try:
+        saved = json.loads((folder / YEARS_FILE).read_text())
+    except (FileNotFoundError, ValueError):
+        saved = None
+    if isinstance(saved, dict):
+        return whole_number(saved.get("years_max"))
     return extract_requirements(run, listing_text).years_max
 
 

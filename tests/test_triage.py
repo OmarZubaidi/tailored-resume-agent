@@ -192,10 +192,20 @@ def test_fit_check_saves_years_for_tailoring(config, ledger_path, tmp_path):
     assert listing_years_max(tmp_path, "LISTING", lambda _: "not called") == 4
 
 
-def test_skipped_fit_check_saves_no_years(config, tmp_path):
+def test_skipped_fit_check_clears_saved_years(config, tmp_path):
+    (tmp_path / YEARS_FILE).write_text('{"years_max": 4}')
+
     save_years(tmp_path, triage_listing(listing("Remote."), config, TODAY))
 
     assert not (tmp_path / YEARS_FILE).exists()
+
+
+@pytest.mark.parametrize("saved", ['{"years_max": 4', "[4]"])
+def test_unreadable_saved_years_asks_again(tmp_path, saved):
+    (tmp_path / YEARS_FILE).write_text(saved)
+    reply = json.dumps({"years_max": 3})
+
+    assert listing_years_max(tmp_path, "LISTING", lambda _: reply) == 3
 
 
 @pytest.mark.parametrize("years_max", [True, "4", None])
