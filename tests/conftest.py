@@ -13,6 +13,13 @@ PROTON_ACCOUNT_FOLDER = "ProtonDrive-" + "someone@example.com"
 DATA_ROOT_SUFFIX = "2 Need/Career/Resume Agent Data"
 
 
+@pytest.fixture(autouse=True)
+def notifications(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    sent: list[str] = []
+    monkeypatch.setattr("resume_agent.cli.notify", sent.append)
+    return sent
+
+
 @pytest.fixture
 def cloud_storage(tmp_path: Path) -> Path:
     storage = tmp_path / "CloudStorage"

@@ -28,6 +28,7 @@ from resume_agent.inbox import (
 from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
 from resume_agent.launch_agent import LaunchAgentError, install_sync_agent, log_path
 from resume_agent.llm import run_prompt
+from resume_agent.notify import SYNC_STOPPED, notify, problems_message
 from resume_agent.pipeline import (
     DIFF_FILE,
     TAILOR_ERRORS,
@@ -348,12 +349,14 @@ def run_sync(config: Config) -> None:
         stages = sync_stages(tracker, config, today())
     except (SyncError, TrackerError) as error:
         typer.echo(str(error), err=True)
+        notify(SYNC_STOPPED)
         raise typer.Exit(1) from error
     for event in stages.events:
         typer.echo(event)
     for failure in stages.failures:
         typer.echo(failure, err=True)
 
+    result = InboxResult()
     if excel_lock_file(path).exists():
         if inbox_waiting(tracker):
             typer.echo("Excel is open; the Inbox waits until it closes.")
@@ -369,8 +372,11 @@ def run_sync(config: Config) -> None:
             )
         except (GuardError, TrackerError) as error:
             typer.echo(f"{error}\nProgress up to the last finished step is saved.", err=True)
+            notify(SYNC_STOPPED)
             raise typer.Exit(1) from error
-        echo_inbox_result(result)
+    if message := problems_message(len(stages.failures) + len(result.failed), len(result.flagged)):
+        notify(message)
+    echo_inbox_result(result)
     if stages.failures:
         raise typer.Exit(1)
 

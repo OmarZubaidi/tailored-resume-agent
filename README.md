@@ -20,7 +20,8 @@ Edit `Job Applications.xlsx`, save, and `resume_agent sync` acts on it (automati
 
 Inbox work waits for Excel to close because writing to an open workbook makes Proton Drive create
 conflicted copies. Stage dates take effect on every save. The sync log is
-`~/Library/Logs/resume_agent/sync.log`.
+`~/Library/Logs/resume_agent/sync.log`. A macOS notification appears when a sync run stops on an
+error, has failed rows, or leaves flagged jobs waiting for review.
 
 ## What you can say
 

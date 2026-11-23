@@ -12,7 +12,9 @@ from resume_agent.config import Config
 from resume_agent.guards.rules import excel_lock_file
 from resume_agent.inbox import FAILED, FLAGGED, process_inbox, sync_inbox
 from resume_agent.job_listing import Listing, ListingError, save_listing
+from resume_agent.notify import SYNC_STOPPED
 from resume_agent.pipeline import Mode
+from resume_agent.sync import SYNC_STATE, SyncResult
 from resume_agent.tailor import TailorError
 from resume_agent.tracker import InboxRow, Tracker, load_tracker, save_tracker, workbook_path
 
@@ -343,6 +345,50 @@ def test_sync_command_leaves_the_inbox_while_excel_is_open(config, calls, monkey
     assert closed_run.exit_code == 0, closed_run.output
     assert "Interested: 00001  Acme Health - Software Engineer" in closed_run.output
     assert load_tracker(workbook_path(config.data_root)).inbox == []
+
+
+def test_sync_command_notifies_failed_and_flagged_rows(config, calls, monkeypatch, notifications):
+    monkeypatch.setattr(cli, "run_prompt", lambda _, prompt: fake_llm(prompt))
+    rows = [
+        InboxRow(url=CLEAR_URL),
+        InboxRow(url=FLAGGED_URL),
+        InboxRow(url="https://jobs.example.com/initech/3"),
+    ]
+    save_tracker(Tracker(inbox=rows), config)
+
+    result = CliRunner().invoke(app, ["sync"])
+
+    assert result.exit_code == 1
+    assert notifications == ["1 failed, 1 waiting for review. See sync.log."]
+
+
+def test_sync_command_notifies_stage_failures(config, monkeypatch, notifications):
+    monkeypatch.setattr(cli, "sync_stages", lambda *_: SyncResult(failures=["00001: locked"]))
+    save_tracker(Tracker(), config)
+
+    result = CliRunner().invoke(app, ["sync"])
+
+    assert result.exit_code == 1
+    assert notifications == ["1 failed. See sync.log."]
+
+
+def test_sync_command_that_stops_notifies(config, notifications):
+    save_tracker(Tracker(), config)
+    (config.data_root / SYNC_STATE).write_text("not json")
+
+    result = CliRunner().invoke(app, ["sync"])
+
+    assert result.exit_code == 1
+    assert notifications == [SYNC_STOPPED]
+
+
+def test_sync_command_without_problems_sends_no_notification(config, calls, notifications):
+    save_tracker(Tracker(), config)
+
+    result = CliRunner().invoke(app, ["sync"])
+
+    assert result.exit_code == 0, result.output
+    assert notifications == []
 
 
 def test_review_rejects_ids_that_are_not_flagged(config, calls):
