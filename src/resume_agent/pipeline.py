@@ -19,7 +19,7 @@ from resume_agent.ats import (
 )
 from resume_agent.browser import BrowserError
 from resume_agent.config import Config
-from resume_agent.cover_letter import write_cover_letter
+from resume_agent.cover_letter import GeneratedLetter, write_cover_letter
 from resume_agent.data_root import BASELINES_DIR
 from resume_agent.documents import (
     DocumentError,
@@ -39,7 +39,13 @@ from resume_agent.guards.rules import (
 )
 from resume_agent.job_listing import LISTING_MD, Listing, read_listing
 from resume_agent.keywords import coverage_detail, keyword_coverage, mentions
-from resume_agent.ledger import LEDGER_FILE, LedgerError, load_ledger, without_ledger_roles
+from resume_agent.ledger import (
+    LEDGER_FILE,
+    Ledger,
+    LedgerError,
+    load_ledger,
+    without_ledger_roles,
+)
 from resume_agent.llm import LlmError
 from resume_agent.prompts import PromptError, parse_json_reply, render_prompt
 from resume_agent.render import RenderError, cover_letter_html, render_pdf, resume_html
@@ -289,6 +295,50 @@ def notes_markdown(baseline: str, mode: Mode, config: Config, today: date) -> st
     )
 
 
+def cover_letter_for(
+    listing: Listing,
+    resume: str,
+    source: Path,
+    ledger: Ledger,
+    config: Config,
+    run: Callable[[str], str],
+) -> GeneratedLetter:
+    return write_cover_letter(
+        run,
+        listing.text,
+        listing.title,
+        resume,
+        (source / COVER_LETTER_SOURCE).read_text(),
+        ledger,
+        optional_text(config.data_root / VOICE_FILE, ""),
+    )
+
+
+def next_draft(folder: Path, stem: str) -> Path:
+    drafts = folder / DRAFTS_DIR
+    drafts.mkdir(exist_ok=True)
+    taken = len(list(drafts.glob(f"{stem}-*.md")))
+    return drafts / f"{stem}-{taken + 1:02d}.md"
+
+
+def draft_letter(
+    folder: Path,
+    config: Config,
+    run: Callable[[str], str],
+    baseline: str | None = None,
+) -> tuple[Path, list[str]]:
+    source = baseline_dir(config, baseline or config.default_baseline)
+    tailored_resume = folder / RESUME_SOURCE
+    resume = (tailored_resume if tailored_resume.is_file() else source / RESUME_SOURCE).read_text()
+    listing = read_listing(folder / LISTING_MD)
+    letter = cover_letter_for(
+        listing, resume, source, load_ledger(source / LEDGER_FILE), config, run
+    )
+    target = next_draft(folder, Path(COVER_LETTER_SOURCE).stem)
+    target.write_text(letter.markdown)
+    return target, letter.flags
+
+
 def tailor_folder(
     folder: Path,
     config: Config,
@@ -327,14 +377,8 @@ def tailor_folder(
     )
     tailored = apply_plan(parse_json_reply(run(prompt)), baseline_resume, bank, ledger)
     tailored.flags.extend(junior_flags)
-    letter = write_cover_letter(
-        run,
-        listing.text,
-        listing.title,
-        resume_markdown(tailored.resume),
-        (source / COVER_LETTER_SOURCE).read_text(),
-        ledger,
-        optional_text(config.data_root / VOICE_FILE, ""),
+    letter = cover_letter_for(
+        listing, resume_markdown(tailored.resume), source, ledger, config, run
     )
 
     out = output_folder(folder)
