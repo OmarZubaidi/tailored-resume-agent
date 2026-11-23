@@ -161,23 +161,22 @@ def ledger_path(tmp_path):
     return path
 
 
-def fit_reply(years, skills, other=()):
+def fit_reply(years, other=()):
     payload = {
         "years_required": years,
-        "required_skills": list(skills),
         "other_requirements": list(other),
     }
     return lambda _: f"```json\n{json.dumps(payload)}\n```"
 
 
 def test_extract_requirements():
-    requirements = extract_requirements(fit_reply(3, ["Go"], ["BS in CS"]), "LISTING")
+    requirements = extract_requirements(fit_reply(3, ["BS in CS"]), "LISTING")
 
-    assert requirements == Requirements(3, ["Go"], ["BS in CS"])
+    assert requirements == Requirements(3, ["BS in CS"])
 
 
 def test_extract_requirements_reads_the_top_of_a_range():
-    reply = '{"years_required": 2, "years_max": 4, "required_skills": []}'
+    reply = '{"years_required": 2, "years_max": 4}'
 
     assert extract_requirements(lambda _: reply, "LISTING").years_max == 4
 
@@ -221,7 +220,6 @@ def test_company_and_role_come_from_the_listing(config, ledger_path):
             "company": "Acme Health",
             "role": "Senior Software Engineer",
             "years_required": None,
-            "required_skills": [],
             "other_requirements": [],
         }
     )
@@ -235,7 +233,7 @@ def test_company_and_role_come_from_the_listing(config, ledger_path):
 def test_company_and_role_fall_back_to_url_and_title(config, ledger_path):
     result = triage_listing(listing("Remote."), config, TODAY)
 
-    add_fit(result, "LISTING", ledger_path, fit_reply(None, []))
+    add_fit(result, "LISTING", ledger_path, fit_reply(None))
 
     assert (result.company, result.role) == ("Acme", "Software Engineer")
 
@@ -257,15 +255,15 @@ def test_company_from_url(source, expected):
 
 
 def test_malformed_requirements_are_tolerated():
-    reply = '{"years_required": true, "required_skills": "Go", "other_requirements": 3}'
+    reply = '{"years_required": true, "other_requirements": 3}'
 
-    assert extract_requirements(lambda _: reply, "LISTING") == Requirements(None, ["Go"], [])
+    assert extract_requirements(lambda _: reply, "LISTING") == Requirements(None, [])
 
 
 def test_fit_within_ledger_adds_no_flags(config, ledger_path):
     result = triage_listing(listing("Remote."), config, TODAY)
 
-    add_fit(result, "LISTING", ledger_path, fit_reply(3, ["TypeScript", "React"]))
+    add_fit(result, "LISTING", ledger_path, fit_reply(3))
 
     assert not result.flagged
     assert result.fit_checked
@@ -274,32 +272,27 @@ def test_fit_within_ledger_adds_no_flags(config, ledger_path):
 
 def test_too_many_years_is_flagged(config, ledger_path):
     result = add_fit(
-        triage_listing(listing("Remote."), config, TODAY), "L", ledger_path, fit_reply(8, [])
+        triage_listing(listing("Remote."), config, TODAY), "L", ledger_path, fit_reply(8)
     )
 
     assert result.flags == ["Years: the listing asks for 8, the ledger shows 5."]
 
 
-def test_two_missing_skills_is_a_note_three_is_a_flag(config, ledger_path):
-    two = add_fit(
-        triage_listing(listing("Remote."), config, TODAY),
-        "L",
-        ledger_path,
-        fit_reply(None, ["TypeScript", "Go", "Rust"], ["BS in CS"]),
-    )
-    three = add_fit(
-        triage_listing(listing("Remote."), config, TODAY),
-        "L",
-        ledger_path,
-        fit_reply(None, ["Go", "Rust", "Kotlin"]),
+def test_skills_outside_the_ledger_are_not_checked(config, ledger_path):
+    reply = json.dumps(
+        {
+            "years_required": None,
+            "required_skills": ["Go", "Rust", "Kotlin"],
+            "other_requirements": ["BS in CS"],
+        }
     )
 
-    assert not two.flagged
-    assert two.notes == [
-        "2 required skills not in the ledger: Go, Rust",
-        "Requirement: BS in CS",
-    ]
-    assert three.flags == ["3 required skills not in the ledger: Go, Rust, Kotlin"]
+    result = add_fit(
+        triage_listing(listing("Remote."), config, TODAY), "L", ledger_path, lambda _: reply
+    )
+
+    assert not result.flagged
+    assert result.notes == ["Requirement: BS in CS"]
 
 
 def test_fit_skipped_without_ledger_still_names_company_and_role(config, tmp_path):

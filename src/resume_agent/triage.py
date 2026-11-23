@@ -14,7 +14,6 @@ from resume_agent.prompts import PromptError, parse_json_reply, render_prompt, t
 
 TRIAGE_MD = "triage.md"
 YEARS_FILE = "years.json"
-MAX_MISSING_SKILLS = 2
 STALE_AFTER = timedelta(hours=72)
 JOB_BOARDS = (
     "linkedin.com",
@@ -98,7 +97,7 @@ class Triage:
         if not self.fit_checked:
             lines += [
                 "## Pending",
-                "- Years of experience and skills fit against the skills ledger.",
+                "- Years of experience against the skills ledger.",
                 "",
             ]
         return "\n".join(lines)
@@ -107,7 +106,6 @@ class Triage:
 @dataclass
 class Requirements:
     years_required: int | None
-    required_skills: list[str]
     other_requirements: list[str]
     company: str = ""
     role: str = ""
@@ -118,7 +116,6 @@ def extract_requirements(run: Callable[[str], str], listing_text: str) -> Requir
     data = parse_json_reply(run(render_prompt("triage-fit", listing=listing_text)))
     return Requirements(
         years_required=whole_number(data.get("years_required")),
-        required_skills=string_list(data.get("required_skills")),
         other_requirements=string_list(data.get("other_requirements")),
         company=text_value(data.get("company")),
         role=text_value(data.get("role")),
@@ -164,11 +161,6 @@ def apply_fit(triage: Triage, requirements: Requirements, ledger: Ledger) -> Tri
             f"Years: the listing asks for {requirements.years_required}, "
             f"the ledger shows {experience}."
         )
-
-    missing = [skill for skill in requirements.required_skills if not ledger.knows(skill)]
-    if missing:
-        message = f"{len(missing)} required skills not in the ledger: {', '.join(missing)}"
-        (triage.flags if len(missing) > MAX_MISSING_SKILLS else triage.notes).append(message)
     triage.notes.extend(f"Requirement: {item}" for item in requirements.other_requirements)
     triage.years_max = requirements.years_max
     triage.fit_checked = True

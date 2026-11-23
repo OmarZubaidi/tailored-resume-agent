@@ -15,9 +15,7 @@ $listing
    number, or null if it states none. Use the lowest number if it gives a range.
 4. `years_max`: the top of a stated range of years ("2-4 years" is 4, "up to 4 years" is 4), or
    null if the listing gives only a minimum ("3 years", "3+ years", "at least 3") or no years.
-5. `required_skills`: hard skills listed as required (languages, frameworks, tools, platforms,
-   standards). Leave out "preferred", "nice to have" and "bonus" items. Use the listing's spelling.
-6. `other_requirements`: required items that are not skills, such as a degree or a domain.
+5. `other_requirements`: required items that are not skills, such as a degree or a domain.
 
 ## Output
 
@@ -29,7 +27,6 @@ Return only JSON, no prose:
   "role": "Senior Software Engineer",
   "years_required": 3,
   "years_max": 5,
-  "required_skills": ["TypeScript", "React", "AWS"],
   "other_requirements": ["Bachelor's degree in Computer Science or equivalent experience"]
 }
 ```
