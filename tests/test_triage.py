@@ -125,7 +125,6 @@ def test_knockouts(config):
 
     assert result.flags == [
         "Clearance: Active TS/SCI clearance required.",
-        "Citizenship: Must be a U.S. citizen.",
         "Degree: Bachelor's degree in Computer Science required.",
     ]
     assert result.notes == [
@@ -133,6 +132,15 @@ def test_knockouts(config):
         "Work authorization: We are unable to provide visa sponsorship.",
     ]
     assert "Result: **FLAGGED**" in result.markdown()
+
+
+def test_citizenship_requirements_are_ignored(config):
+    text = "Remote. U.S. citizenship required; we do not sponsor visas."
+
+    result = triage_listing(listing(text), config, TODAY)
+
+    assert result.flags == []
+    assert result.notes == []
 
 
 def test_no_clearance_required_is_not_flagged(config):

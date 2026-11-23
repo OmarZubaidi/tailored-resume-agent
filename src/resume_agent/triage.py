@@ -255,9 +255,7 @@ def triage_listing(listing: Listing, config: Config, today: date | None = None) 
         if CLEARANCE.search(sentence):
             if not NEGATION.search(sentence):
                 result.flags.append(f"Clearance: {sentence}")
-        elif CITIZENSHIP.search(sentence):
-            result.flags.append(f"Citizenship: {sentence}")
-        elif WORK_AUTHORIZATION.search(sentence):
+        elif WORK_AUTHORIZATION.search(sentence) and not CITIZENSHIP.search(sentence):
             authorization.append(sentence)
         if DEGREE.search(sentence):
             target = result.notes if PREFERRED.search(sentence) else result.flags
