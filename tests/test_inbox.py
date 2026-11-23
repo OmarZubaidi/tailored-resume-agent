@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from resume_agent import cli, inbox
+from resume_agent import cli, inbox, validation
 from resume_agent.cli import app
 from resume_agent.config import Config
 from resume_agent.guards.rules import excel_lock_file
@@ -42,7 +42,7 @@ def calls(monkeypatch) -> dict[str, list]:
         "tailor": [],
     }
 
-    def fake_fetch(url: str, out_dir: Path) -> Listing:
+    def fake_fetch(url: str, out_dir: Path, chrome: bool = False) -> Listing:
         calls["fetch"].append(url)
         if url not in LISTINGS:
             raise ListingError(f"Could not load {url}")
@@ -58,8 +58,8 @@ def calls(monkeypatch) -> dict[str, list]:
             render=SimpleNamespace(passed=True),
         )
 
-    monkeypatch.setattr(inbox, "fetch_listing", fake_fetch)
-    monkeypatch.setattr(inbox, "resolve_listing", lambda raw, out_dir: (raw, None, False))
+    monkeypatch.setattr(validation, "fetch_listing", fake_fetch)
+    monkeypatch.setattr(validation, "resolve_listing", lambda raw, out_dir: (raw, None, False))
     monkeypatch.setattr(inbox, "tailor_folder", fake_tailor)
     return calls
 
@@ -138,7 +138,9 @@ def test_failed_fetch_does_not_stop_the_batch_and_retries(config, calls, monkeyp
 
     assert [row.url for row in result.failed] == [bad_url]
     assert tracker.inbox[0].status == FAILED
-    assert tracker.inbox[0].reason == f"Could not load {bad_url}"
+    assert tracker.inbox[0].reason == (
+        f"Could not load {bad_url} | Chrome also failed: Could not load {bad_url}"
+    )
     assert [app.id for app in tracker.applications] == [2]
 
     monkeypatch.setitem(LISTINGS, bad_url, ("Initech", "Engineer", "Remote."))
@@ -173,15 +175,17 @@ def test_listing_that_failed_validation_is_refetched(config, calls, monkeypatch)
     def login_wall(raw, out_dir):
         raise ListingError("Looks like a login page")
 
-    monkeypatch.setattr(inbox, "resolve_listing", login_wall)
+    monkeypatch.setattr(validation, "resolve_listing", login_wall)
     tracker = Tracker(inbox=[InboxRow(url=CLEAR_URL)])
     run(tracker, config)
-    assert tracker.inbox[0].reason == "Looks like a login page"
+    assert tracker.inbox[0].reason == (
+        "Looks like a login page | Chrome also failed: Looks like a login page"
+    )
 
-    monkeypatch.setattr(inbox, "resolve_listing", lambda raw, out_dir: (raw, None, False))
+    monkeypatch.setattr(validation, "resolve_listing", lambda raw, out_dir: (raw, None, False))
     run(tracker, config)
 
-    assert calls["fetch"] == [CLEAR_URL, CLEAR_URL]
+    assert calls["fetch"] == [CLEAR_URL, CLEAR_URL, CLEAR_URL]
     assert [app.id for app in tracker.applications] == [1]
 
 

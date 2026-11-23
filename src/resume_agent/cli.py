@@ -25,7 +25,7 @@ from resume_agent.inbox import (
     review_rows,
     sync_inbox,
 )
-from resume_agent.job_listing import ListingError, fetch_listing, listing_from_pdf
+from resume_agent.job_listing import ListingError, listing_from_pdf
 from resume_agent.launch_agent import LaunchAgentError, install_sync_agent, log_path
 from resume_agent.llm import run_prompt
 from resume_agent.notify import SYNC_STOPPED, notify, problems_message
@@ -65,7 +65,7 @@ from resume_agent.tracker import (
     workbook_path,
 )
 from resume_agent.triage import TRIAGE_MD
-from resume_agent.validation import resolve_listing
+from resume_agent.validation import fetch_usable_listing, resolve_listing
 
 app = typer.Typer(help="Tailored Resume and Application Agent", no_args_is_help=True)
 config_app = typer.Typer(help="Inspect the config file.", no_args_is_help=True)
@@ -174,8 +174,10 @@ def fetch(
         raise typer.Exit(1)
     config = load_config_or_exit()
     try:
-        raw = fetch_listing(url, out_dir) if url else listing_from_pdf(pdf, out_dir)
-        listing, validation, used_ocr = resolve_listing(raw, out_dir)
+        if url:
+            listing, validation, used_ocr = fetch_usable_listing(url, out_dir)
+        else:
+            listing, validation, used_ocr = resolve_listing(listing_from_pdf(pdf, out_dir), out_dir)
     except (BrowserError, ListingError, FileNotFoundError) as error:
         typer.echo(str(error), err=True)
         raise typer.Exit(1) from error

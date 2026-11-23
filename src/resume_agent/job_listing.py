@@ -20,6 +20,14 @@ MIN_CONTENT_CHARS = 200
 NAVIGATION_TIMEOUT_MS = 45_000
 HTTP_ERROR = 400
 BLANK_LINES = re.compile(r"\n\s*\n+")
+# Headed Chrome can't print to PDF, so its page is copied into headless Chromium: the base tag
+# keeps relative links working and dropping scripts stops the copy redirecting or re-blocking.
+FREEZE_PAGE = """url => {
+  document.querySelectorAll("script").forEach(script => script.remove());
+  const base = document.createElement("base");
+  base.href = url;
+  document.head.prepend(base);
+}"""
 
 
 class ListingError(Exception):
@@ -69,17 +77,31 @@ def save_listing(listing: Listing, out_dir: Path) -> Listing:
     return listing
 
 
-def fetch_listing(url: str, out_dir: Path) -> Listing:
+def save_pdf(page: Page, out_dir: Path) -> None:
+    page.pdf(path=str(out_dir / LISTING_PDF), print_background=True)
+
+
+def fetch_listing(url: str, out_dir: Path, chrome: bool = False) -> Listing:
     out_dir.mkdir(parents=True, exist_ok=True)
-    with browser_page() as page:
+    with browser_page(chrome=chrome) as page:
         try:
             response = page.goto(url, wait_until="networkidle", timeout=NAVIGATION_TIMEOUT_MS)
+            if response and response.status >= HTTP_ERROR:
+                raise ListingError(f"Could not load {url}: HTTP {response.status}")
+            listing = Listing(source=url, title=page_title(page), text=page_text(page))
+            if not chrome:
+                save_pdf(page, out_dir)
+                return save_listing(listing, out_dir)
+            page.evaluate(FREEZE_PAGE, page.url)
+            html = page.content()
         except PlaywrightError as error:
             raise ListingError(f"Could not load {url}: {error.message}") from error
-        if response and response.status >= HTTP_ERROR:
-            raise ListingError(f"Could not load {url}: HTTP {response.status}")
-        listing = Listing(source=url, title=page_title(page), text=page_text(page))
-        page.pdf(path=str(out_dir / LISTING_PDF), print_background=True)
+    with browser_page() as printer:
+        try:
+            printer.set_content(html, wait_until="load", timeout=NAVIGATION_TIMEOUT_MS)
+        except PlaywrightError as error:
+            raise ListingError(f"Could not print {url} to PDF: {error.message}") from error
+        save_pdf(printer, out_dir)
     return save_listing(listing, out_dir)
 
 

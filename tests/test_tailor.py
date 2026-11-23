@@ -12,6 +12,7 @@ from resume_agent.tailor import (
     diff_markdown,
     drop_lowest_bullet,
     experience_roles,
+    known_skill_rows,
     ledger_summary,
     numbers,
     without_roles,
@@ -294,7 +295,7 @@ def test_ledger_metrics_allow_a_number(ledger, bank):
             },
             "is not an object with source and text",
         ),
-        ({"skills": ["Cloud: Kubernetes"]}, "Skill 'Kubernetes' is not in the skills ledger"),
+        ({"skills": ["Cloud: Kubernetes"]}, "Every skill is outside the skills ledger"),
         ({"skills": []}, "Skills list is empty"),
         ({"headline": ""}, "Headline is empty"),
     ],
@@ -302,6 +303,27 @@ def test_ledger_metrics_allow_a_number(ledger, bank):
 def test_rule_breaks(ledger, bank, overrides, message):
     with pytest.raises(TailorError, match=message):
         apply_plan(plan(**overrides), BASELINE, bank, ledger)
+
+
+def test_skills_outside_the_ledger_are_dropped_and_flagged(ledger, bank):
+    mixed = plan(skills=["Cloud: AWS (Lambda), Kubernetes", "Ops: Terraform"])
+
+    tailored = apply_plan(mixed, BASELINE, bank, ledger)
+
+    assert tailored.resume.sections[2].items == ["Cloud: AWS (Lambda)"]
+    assert tailored.flags == [
+        "Dropped skill 'Kubernetes': not in the skills ledger",
+        "Dropped skill 'Terraform': not in the skills ledger",
+    ]
+
+
+def test_known_skill_rows_keep_unlabeled_rows_and_drop_emptied_ones(ledger):
+    rows = ["AWS (Lambda), Go", "Ops: Terraform", "Cloud: AWS (Lambda, Kubernetes)"]
+
+    assert known_skill_rows(rows, ledger) == (
+        ["AWS (Lambda)"],
+        ["Go", "Terraform", "AWS (Lambda, Kubernetes)"],
+    )
 
 
 def test_years_and_proficiency_are_flagged(ledger, bank):

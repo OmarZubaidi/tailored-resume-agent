@@ -19,7 +19,8 @@ Edit `Job Applications.xlsx`, save, and `resume_agent sync` acts on it (automati
 | `proceed` in a failed row's Decision cell | After you close Excel: retries it |
 
 Inbox work waits for Excel to close because writing to an open workbook makes Proton Drive create
-conflicted copies. Stage dates take effect on every save. The sync log is
+conflicted copies. A listing that headless Chromium can't load or read is retried in a visible
+Google Chrome window. Stage dates take effect on every save. The sync log is
 `~/Library/Logs/resume_agent/sync.log`. A macOS notification appears when a sync run stops on an
 error, has failed rows, or leaves flagged jobs waiting for review.
 

@@ -68,10 +68,16 @@ def expand_term(term: str) -> list[str]:
     return [item for item in expanded if item]
 
 
+def split_skill_row(row: str) -> tuple[str, list[str]]:
+    label, separator, rest = row.partition(": ")
+    if not separator:
+        return "", split_top_level(row)
+    return f"{label}{separator}", split_top_level(rest)
+
+
 def skill_row_terms(row: str) -> list[str]:
-    _, separator, rest = row.partition(": ")
-    parts = split_top_level(rest if separator else row)
-    return [term for part in parts for term in expand_term(part)]
+    _, items = split_skill_row(row)
+    return [term for item in items for term in expand_term(item)]
 
 
 def vocabulary(resume: Resume, config: Config) -> list[str]:
