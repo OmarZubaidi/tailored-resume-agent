@@ -73,6 +73,7 @@ BANNED_WORDS = (
     "empower",
     "holistic",
     "paradigm",
+    "matters",
 )
 BANNED_WORD = re.compile(
     rf"\b({'|'.join(re.escape(word) for word in BANNED_WORDS)})\b", re.IGNORECASE

@@ -41,12 +41,12 @@ as a suggestion of shape and tone, not a form to fill in, and leave no "[...]" p
    and the result, using only what the notes and resume state. A story without notes opens with the
    result and states no constraint or context. Pick the story that fits this listing best. No list
    of projects, and name at most three technologies, only ones the listing also names.
-3. Fit, two or three sentences. Answer the reader's likely objection or show the non-obvious
-   asset. His earlier career in civil engineering and engineering software sales means he sees
-   software the way its non-technical users do, and brings that view to the team.
-4. Why this company, one or two sentences. Build on one concrete detail the listing states, such
-   as a product, customer, value or story. Never invent company details. If the listing gives
-   nothing usable, give a reason tied to the role instead.
+3. Earlier career, two or three sentences. Use one concrete fact from the story notes that fits
+   this listing, so the reader sees he understands users because he was one. Let the fact carry
+   it; do not add a sentence explaining the lesson.
+4. Why this company, one or two sentences, optional. Build on one concrete, non-generic detail the
+   listing states, such as a product, customer, value or story. Never invent company details. If
+   the listing offers nothing specific, leave this paragraph out.
 5. Close, one plain sentence offering a conversation.
 
 ## Rules
@@ -68,6 +68,8 @@ as a suggestion of shape and tone, not a form to fill in, and leave no "[...]" p
    - Never use contrast framing such as "not just X, it's Y", "it's not X, it's Y" or
      "not only X, but Y".
    - Vary sentence openings. Never start three sentences in a row with "I".
+   - No moral-of-the-story sentences: state a fact and stop, without a follow-up that explains
+     what it taught him or why it matters.
 6. Keep the whole letter under $max_words words.
 
 ## Output
