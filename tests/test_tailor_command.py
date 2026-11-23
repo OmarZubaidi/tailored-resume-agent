@@ -276,14 +276,14 @@ def test_tailor_command_reports_rule_breaks(config, config_data, write_config, f
     write_config(config_data)
     bad_plan = {
         **PLAN,
-        "skills": ["Cloud: Kubernetes"],
+        "headline": "",
     }
     monkeypatch.setattr(cli, "run_prompt", lambda _, prompt: json.dumps(bad_plan))
 
     result = CliRunner().invoke(app, ["tailor", str(folder)])
 
     assert result.exit_code == 1
-    assert "Skill 'Kubernetes' is not in the skills ledger" in result.output
+    assert "Headline is empty" in result.output
     assert not (folder / "resume.md").exists()
 
 

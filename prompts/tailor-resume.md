@@ -40,7 +40,8 @@ $tailoring_rules
    the claim. Never add a number, tool, scale, team size or outcome the source bullet does not state.
 3. Never state years of experience or proficiency levels ("expert", "5+ years", "advanced").
 4. Put the 3 most relevant bullets first in each role. Back each required qualification with one
-   bullet where the bank allows it.
+   bullet where the bank allows it. When the listing asks for skills the ledger lacks, tailor to its
+   responsibilities, domain and the skills it shares with the ledger.
 5. Keep every role heading exactly as written in the baseline. Roles with no bullets in the baseline
    keep no bullets.
 6. Keep the resume to one page: at most 6 bullets for the current role and 3 for each earlier role.

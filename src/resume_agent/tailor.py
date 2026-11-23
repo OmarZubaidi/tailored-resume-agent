@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass, field, replace
 
 from resume_agent.documents import Resume, Role, Section
-from resume_agent.keywords import SKILLS_SECTION, skill_row_terms
+from resume_agent.keywords import SKILLS_SECTION, expand_term, split_skill_row
 from resume_agent.ledger import Ledger
 
 BANK_FILE = "bullet-bank.md"
@@ -136,6 +136,17 @@ def choose_bullets(
     return chosen, problems, flags
 
 
+def known_skill_rows(rows: list[str], ledger: Ledger) -> tuple[list[str], list[str]]:
+    kept, dropped = [], []
+    for row in rows:
+        label, items = split_skill_row(row)
+        known = [item for item in items if all(ledger.knows(t) for t in expand_term(item))]
+        dropped += [item for item in items if item not in known]
+        if known:
+            kept.append(f"{label}{', '.join(known)}")
+    return kept, dropped
+
+
 def apply_plan(plan: dict, baseline: Resume, bank: list[BankBullet], ledger: Ledger) -> Tailored:
     problems: list[str] = []
     flags: list[str] = []
@@ -165,16 +176,14 @@ def apply_plan(plan: dict, baseline: Resume, bank: list[BankBullet], ledger: Led
         chosen += picked
         roles.append(replace(role, bullets=[bullet.text for bullet in picked]))
 
-    skills = [str(row).strip() for row in plan.get("skills") or [] if str(row).strip()]
+    rows = [str(row).strip() for row in plan.get("skills") or [] if str(row).strip()]
+    skills, dropped = known_skill_rows(rows, ledger)
+    flags += [f"Dropped skill {item!r}: not in the skills ledger" for item in dropped]
     baseline_skills = section(baseline, SKILLS_SECTION)
     if baseline_skills and baseline_skills.items and not skills:
-        problems.append("Skills list is empty")
-    problems += [
-        f"Skill {term!r} is not in the skills ledger"
-        for row in skills
-        for term in skill_row_terms(row)
-        if not ledger.knows(term)
-    ]
+        problems.append(
+            "Every skill is outside the skills ledger" if dropped else "Skills list is empty"
+        )
 
     if problems:
         raise TailorError(problems)
